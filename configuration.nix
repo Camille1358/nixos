@@ -12,6 +12,7 @@
       ./Packages/packages_2.nix
       ./alias.nix
       ./localisation.nix
+      ./nixos_instable.nix
     ];
 
   # Bootloader.
