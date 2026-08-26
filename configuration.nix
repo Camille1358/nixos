@@ -24,6 +24,12 @@
   services.displayManager.autoLogin.enable = true;
   services.displayManager.autoLogin.user = "cam";
 
+  nix.gc = {
+  automatic = true;
+  dates = "weekly";
+  options = "--delete-older-than +30";
+};
+
   # Use latest kernel.
   boot.kernelPackages = pkgs.linuxPackages_latest;
 
