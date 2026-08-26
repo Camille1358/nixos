@@ -3,18 +3,25 @@
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
 { config, pkgs, ... }:
-
+let
+  local = import ./local.nix;
+in
 {
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
-      ./Packages/packages.nix
-      ./Packages/packages_2.nix
       ./alias.nix
       ./localisation.nix
       ./nixos_instable.nix
       ./gaming_driver.nix
+      ./packages.nix
+      <home-manager/nixos>
     ];
+
+  #home-manager configuration
+  home-manager.useGlobalPkgs = true;   # Utilise les paquets du système pour éviter les doublons
+  home-manager.useUserPackages = true; # Installe les paquets directement dans le profil utilisateur
+  home-manager.users.${local.sysName} = import ./home.nix;
 
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
@@ -22,19 +29,21 @@
 
   # Connexion automatique sans mot de passe
   services.displayManager.autoLogin.enable = true;
-  services.displayManager.autoLogin.user = "cam";
+  services.displayManager.autoLogin.user = local.sysName;
 
   #auto-update
-  system.autoUpgrade.enable = true;
-  system.autoUpgrade.date = "weekly";
+  system.autoUpgrade = {
+    enable = true;
+    dates = "weekly";
+  };
 
   #automatic garbage collection
   nix.gc = {
   automatic = true;
   dates = "weekly";
   options = "--delete-older-than +30";
-  auto-optimise-store = true;
 };
+  nix.settings.auto-optimise-store = true;
 
   # Use latest kernel.
   boot.kernelPackages = pkgs.linuxPackages_latest;
@@ -45,8 +54,6 @@
   # Configure network proxy if necessary
   # networking.proxy.default = "http://user:password@proxy:port/";
   # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
-
-  programs.gamescope.enable = true;
 
   # Enable networking
   networking.networkmanager.enable = true;
@@ -82,9 +89,9 @@
   # services.xserver.libinput.enable = true;
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
-  users.users."cam" = {
+  users.users."${local.sysName}" = {
     isNormalUser = true;
-    description = "Cam";
+    description = local.sysName;
     extraGroups = [ "networkmanager" "wheel" ];
     packages = with pkgs; [
       kdePackages.kate
