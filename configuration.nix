@@ -24,10 +24,16 @@
   services.displayManager.autoLogin.enable = true;
   services.displayManager.autoLogin.user = "cam";
 
+  #auto-update
+  system.autoUpgrade.enable = true;
+  system.autoUpgrade.date = "weekly";
+
+  #automatic garbage collection
   nix.gc = {
   automatic = true;
   dates = "weekly";
   options = "--delete-older-than +30";
+  auto-optimise-store = true;
 };
 
   # Use latest kernel.
