@@ -5,7 +5,6 @@
     git
     vlc
     vscode
-    discord
     fastfetch
     easyeffects
     vesktop
