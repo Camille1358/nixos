@@ -14,7 +14,6 @@
     protonup-qt
     keepassxc
     firefox
-    steam
     obs-studio
     google-chrome
   ];
