@@ -23,6 +23,7 @@ in
     google-chrome
     mangohud
 
+  # Discord + Vencord
   (discord.override {
     withVencord = true;
   })
@@ -36,8 +37,10 @@ in
   # Configuration directe de tes logiciels personnels
   programs.git = {
     enable = true;
-    userName = local.gitName;
-    userEmail = local.gitEmail;
+    setings = {
+      userName = local.gitName;
+      userEmail = local.gitEmail;
+    };
   };
 
   # Active la gestion de Home Manager par lui-même
