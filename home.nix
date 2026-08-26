@@ -37,9 +37,9 @@ in
   # Configuration directe de tes logiciels personnels
   programs.git = {
     enable = true;
-    setings = {
-      userName = local.gitName;
-      userEmail = local.gitEmail;
+    settings = {
+      user.name = local.gitName;
+      user.email = local.gitEmail;
     };
   };
 
