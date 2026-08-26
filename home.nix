@@ -9,12 +9,10 @@ in
 
   # Paquets installés uniquement pour ta session utilisateur
   home.packages = with pkgs; [
-    git
     vlc
     vscode
     fastfetch
     easyeffects
-    vesktop
     spotify
     unzip
     lutris-free
