@@ -16,5 +16,6 @@
     firefox
     obs-studio
     google-chrome
+    mangohud
   ];
 }
