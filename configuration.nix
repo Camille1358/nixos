@@ -13,6 +13,7 @@
       ./alias.nix
       ./localisation.nix
       ./nixos_instable.nix
+      ./gaming_driver.nix
     ];
 
   # Bootloader.

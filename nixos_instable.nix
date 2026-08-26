@@ -7,7 +7,6 @@ let
   };
 in
 {
-  # Ton reste de configuration...
 
   hardware.graphics.package = pkgs-unstable.mesa.drivers;
   hardware.graphics.package32 = pkgs-unstable.pkgsi686Linux.mesa.drivers;
