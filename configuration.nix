@@ -8,7 +8,8 @@
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
-      ./packages.nix
+      ./Packages/packages.nix
+      ./Packages/packages_2.nix
       ./alias.nix
       ./localisation.nix
     ];
