@@ -7,6 +7,10 @@
     # Set your time zone.
   time.timeZone = "Europe/Paris";
 
+  environment.sessionVariables = {
+    TZ = "UTC";
+  };
+
   # Select internationalisation properties.
   i18n.defaultLocale = "fr_FR.UTF-8";
 
