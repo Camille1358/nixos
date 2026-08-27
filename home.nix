@@ -60,9 +60,9 @@ in
         "gfx.webrender.all" = true; # Accélération matérielle et rendu GPU sous Wayland
         "media.hardware-video-decoding.enabled" = true;
         "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
-      };
-      userChrome = ''
-        #tabbrowser-tabs .tabbrowser-tab {
+      }; # Desactivation taille minimale des onglets pour plus de fluidité et d'espace sur la barre d'onglets
+      userChrome = '' 
+        #tabbrowser-tabs .tabbrowser-tab { 
           min-width: 0px !important;
         }
       '';
