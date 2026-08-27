@@ -54,6 +54,7 @@ in
     profiles.${local.sysName} = {
       isDefault = true;
       settings = {
+        "privacy.resistFingerprinting" = true;
         "browser.cache.disk.enable" = false; # Bascule du cache disque vers la RAM (1 Go max)
         "browser.cache.memory.enable" = true;
         "browser.cache.memory.capacity" = 1048576;
