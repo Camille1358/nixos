@@ -3,36 +3,36 @@ let
   local = import ./local.nix;
 in
 {
-  # Informations sur l'utilisateur
-  home.username = local.sysName; 
-  home.homeDirectory = "/home/${local.sysName}";
+  home ={
+    username = local.sysName; # Informations sur l'utilisateur
+    homeDirectory = "/home/${local.sysName}";
+    packages = with pkgs; [ # Paquets installés uniquement pour ta session utilisateur
+      vlc
+      vscode
+      fastfetch
+      easyeffects
+      spotify
+      unzip
+      lutris-free
+      protonup-qt
+      keepassxc
+      firefox
+      obs-studio
+      google-chrome
+      mangohud
+      vesktop
+      
+    # Discord + Vencord
+      (discord.override {
+        withVencord = true;
+      })
 
-  # Paquets installés uniquement pour ta session utilisateur
-  home.packages = with pkgs; [
-    vlc
-    vscode
-    fastfetch
-    easyeffects
-    spotify
-    unzip
-    lutris-free
-    protonup-qt
-    keepassxc
-    firefox
-    obs-studio
-    google-chrome
-    mangohud
-
-  # Discord + Vencord
-  (discord.override {
-    withVencord = true;
-  })
-
-  # Discord PTB + Vencord
-  (discord-ptb.override {
-    withVencord = true;
-  })
-];
+      # Discord PTB + Vencord
+      (discord-ptb.override {
+        withVencord = true;
+      })
+    ];
+  };
 
   # Configuration directe de tes logiciels personnels
   programs.git = {

@@ -3,9 +3,11 @@
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
 { config, pkgs, ... }:
+
 let
   local = import ./local.nix;
 in
+
 {
   imports =
     [ # Include the results of the hardware scan.
@@ -18,8 +20,7 @@ in
       <home-manager/nixos>
     ];
 
-  #home-manager configuration
-  home-manager = {
+  home-manager = { #home-manager configuration
     useGlobalPkgs = true; # Utilise les paquets du système pour éviter les doublons
     useUserPackages = true; # Installe les paquets directement dans le profil utilisateur
     users.${local.sysName} = import ./home.nix;
