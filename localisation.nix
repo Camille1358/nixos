@@ -7,10 +7,6 @@
     # Set your time zone.
   time.timeZone = "Europe/Paris";
 
-  environment.sessionVariables = {
-    TZ = "UTC";
-  };
-
   # Select internationalisation properties.
   i18n.defaultLocale = "fr_FR.UTF-8";
 
@@ -30,5 +26,23 @@
   services.xserver.xkb = {
     layout = "fr";
     variant = "";
-  }; 
+  };
+
+  environment.sessionVariables = { # Tout sauf environnement de bureau et kde on l'UTC classique (+confidentialité)
+    TZ = "UTC";
+  };
+
+  # Gestion des polices pour une meilleure compatibilité et lisibilité
+  fonts = {
+    enableDefaultPackages = false; # Désactive les paquets de polices par défaut inutiles
+    packages = with pkgs; [
+      liberation_ttf # Remplaçant standard des polices Arial/Times
+      noto-fonts     # Standard mondial pour éviter le manque de glyphes
+    ];
+    fontconfig.defaultFonts = {
+      sansSerif = [ "Liberation Sans" ];
+      serif     = [ "Liberation Serif" ];
+      monospace = [ "Liberation Mono" ];
+    };
+  };
 }

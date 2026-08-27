@@ -117,20 +117,6 @@ in
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
-  
-  # Gestion des polices pour une meilleure compatibilité et lisibilité
-  fonts = {
-    enableDefaultPackages = false; # Désactive les paquets de polices par défaut inutiles
-    packages = with pkgs; [
-      liberation_ttf # Remplaçant standard des polices Arial/Times
-      noto-fonts     # Standard mondial pour éviter le manque de glyphes
-    ];
-    fontconfig.defaultFonts = {
-      sansSerif = [ "Liberation Sans" ];
-      serif     = [ "Liberation Serif" ];
-      monospace = [ "Liberation Mono" ];
-    };
-  };
 
   # List packages installed in system profile. To search, run:
   # $ nix search wget
