@@ -40,7 +40,7 @@ in
     ];
   };
 
-  # Configuration directe de tes logiciels personnels
+  # Configuration directe des logiciels
   programs.git = {
     enable = true;
     settings = {
