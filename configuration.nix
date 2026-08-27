@@ -20,7 +20,7 @@ in
       <home-manager/nixos>
     ];
 
-  home-manager = { #home-manager configuration
+  home-manager = { # Home-manager configuration
     useGlobalPkgs = true; # Utilise les paquets du système pour éviter les doublons
     useUserPackages = true; # Installe les paquets directement dans le profil utilisateur
     users.${local.sysName} = import ./home.nix;
@@ -32,10 +32,17 @@ in
       systemd-boot.enable = true;
       efi.canTouchEfiVariables = true;
     };
+    kernel.sysctl = {
+      "vm.max_map_count" = 2147483642; # Augmente la limite de mappage mémoire / Ajustement mémoire pour les gros jeux sous Proton
+      "vm.swappiness" = 10; # Réduit l'utilisation du swap pour améliorer les performances
+      "net.core.default_qdisc" = "fq"; # Utilise l'algorithme de file d'attente FQ pour améliorer la gestion du trafic réseau
+      "net.ipv4.tcp_congestion_control" = "bbr"; # Active l'algorithme de contrôle de congestion BBR pour améliorer les performances réseau
+    };
     kernelPackages = pkgs.linuxPackages_latest; # Use latest kernel.
+    kernelParams = [ "split_lock_detect=off" ]; # Élimination des stutterings
   };
 
-  #auto-update
+  # auto-update
   system.autoUpgrade = {
     enable = true;
     dates = "weekly";
@@ -43,11 +50,11 @@ in
 
   nix = {
     gc = {
-      automatic = true; #automatic garbage collection
+      automatic = true; # Automatic garbage collection
       dates = "weekly";
-      options = "--delete-older-than 100d"; #delete packages older than 100 days
+      options = "--delete-older-than 100d"; # Delete packages older than 100 days
     };
-    settings.auto-optimise-store = true; #auto-optimise store
+    settings.auto-optimise-store = true; # Auto-optimise store
   };
 
   networking = {
@@ -63,13 +70,14 @@ in
     desktopManager.plasma6.enable = true;
     printing.enable = true; # Enable CUPS to print documents.
     pulseaudio.enable = false; # Enable sound with pipewire.
+    fstrim.enable = true; # Enable periodic TRIM for SSDs.
     pipewire = {
       enable = true;
       alsa.enable = true;
       alsa.support32Bit = true;
       pulse.enable = true;
-      #jack.enable = true; # If you want to use JACK applications, uncomment this
-      #media-session.enable = true; # use the example session manager (no others are packaged yet so this is enabled by default, no need to redefine it in your config for now)
+      # jack.enable = true; # If you want to use JACK applications, uncomment this
+      # media-session.enable = true; # use the example session manager (no others are packaged yet so this is enabled by default, no need to redefine it in your config for now)
     };
     displayManager = {
       sddm.enable = true; # Enable the KDE Plasma Desktop Environment.
@@ -82,8 +90,7 @@ in
 
   security.rtkit.enable = true;
 
-  # Define a user account. Don't forget to set a password with ‘passwd’.
-  users.users."${local.sysName}" = {
+  users.users."${local.sysName}" = { # Define a user account. Don't forget to set a password with ‘passwd’.
     isNormalUser = true;
     description = local.sysName;
     extraGroups = [ "networkmanager" "wheel" ];
@@ -92,6 +99,9 @@ in
     #  thunderbird
     ];
   };
+
+  # Gestion de la mémoire et réactivité système
+  zramSwap.enable = true;
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;

@@ -24,6 +24,7 @@ in
       goverlay
       vesktop
       gamescope
+      lact
 
     # Discord + Vencord
       (discord.override {
