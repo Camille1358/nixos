@@ -62,8 +62,13 @@ in
   };
 
   networking = {
-    hostName = "nixos"; # Define your hostname.
-    networkmanager.enable = true; # Enable networking
+    hostName = "host"; # Define your hostname. ("nixos" used by default), used host for confidentiality and security
+    networkmanager = {
+      enable = true; # Enable networking
+      wifi.scanRandMacAddress = true; # MAC aléatoire pour le scan Wi-Fi
+      ethernet.macAddress = "random";
+      wifi.macAddress = "random";
+    };
     # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
     # networking.proxy.default = "http://user:password@proxy:port/"; # Configure network proxy if necessary
     # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
@@ -112,6 +117,20 @@ in
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
+  
+  # Gestion des polices pour une meilleure compatibilité et lisibilité
+  fonts = {
+    enableDefaultPackages = false; # Désactive les paquets de polices par défaut inutiles
+    packages = with pkgs; [
+      liberation_ttf # Remplaçant standard des polices Arial/Times
+      noto-fonts     # Standard mondial pour éviter le manque de glyphes
+    ];
+    fontconfig.defaultFonts = {
+      sansSerif = [ "Liberation Sans" ];
+      serif     = [ "Liberation Serif" ];
+      monospace = [ "Liberation Mono" ];
+    };
+  };
 
   # List packages installed in system profile. To search, run:
   # $ nix search wget

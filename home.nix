@@ -55,9 +55,11 @@ in
     profiles.${local.sysName} = {
       isDefault = true;
       settings = {
-        "privacy.resistFingerprinting" = true; # Active la protection contre le fingerprinting (+FingerprintingResist)
-        "dom.security.https_only_mode" = true; # Active le mode HTTPS (+confidentialité & sécurité)
+        "privacy.resistFingerprinting" = false; # Protection contre le fingerprinting (+++FingerprintingResist, mais lourd sur l'ergo)
+        "privacy.fingerprintingProtection" = true; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
+        "dom.security.https_only_mode" = true; # Mode HTTPS (+confidentialité & sécurité)
         "privacy.donottrackheader.enabled" = false; # Désactive l'envoi de l'en-tête Do Not Track (+FingerprintingResist)
+        "privacy.trackingprotection.enabled" = true; # Protection contre le tracking (+confidentialité)
         "datareporting.healthreport.uploadEnabled" = false; # Désactive l'envoi de rapports (+confidentialité)
         "app.normandy.enabled" = false; # Empêche Mozilla d'exécuter à distance des expérimentations ou des modifications (+confidentialité)
         "geo.enabled" = false; # Désactive la géolocalisation (+confidentialité)
