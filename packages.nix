@@ -13,4 +13,15 @@
 
   #gamemode for game stability & performance
   programs.gamemode.enable = true;
+
+  programs.nix-ld = {
+    enable = true;
+    libraries = with pkgs; [
+      stdenv.cc.cc
+      zlib
+      glib
+      icu
+      openssl
+    ];
+  };
 }

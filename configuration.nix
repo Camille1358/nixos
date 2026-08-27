@@ -19,17 +19,23 @@ in
     ];
 
   #home-manager configuration
-  home-manager.useGlobalPkgs = true;   # Utilise les paquets du système pour éviter les doublons
-  home-manager.useUserPackages = true; # Installe les paquets directement dans le profil utilisateur
-  home-manager.users.${local.sysName} = import ./home.nix;
+  home-manager = {
+    useGlobalPkgs = true; # Utilise les paquets du système pour éviter les doublons
+    useUserPackages = true; # Installe les paquets directement dans le profil utilisateur
+    users.${local.sysName} = import ./home.nix;
+  };
 
   # Bootloader.
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
+  boot.loader = {
+    systemd-boot.enable = true;
+    efi.canTouchEfiVariables = true;
+  };
 
   # Connexion automatique sans mot de passe
-  services.displayManager.autoLogin.enable = true;
-  services.displayManager.autoLogin.user = local.sysName;
+  services.displayManager.autoLogin = {
+    enable = true;
+    user = local.sysName;
+  };
 
   #auto-update
   system.autoUpgrade = {
@@ -37,57 +43,41 @@ in
     dates = "weekly";
   };
 
-  #automatic garbage collection
-  nix.gc = {
-  automatic = true;
-  dates = "weekly";
-  options = "--delete-older-than +30";
+  nix = {
+  gc.automatic = true; #automatic garbage collection
+  gc.dates = "weekly";
+  gc.options = "--delete-older-than +100";
+  settings.auto-optimise-store = true; #auto-optimise store
   };
-
-  #auto-optimise store
-  nix.settings.auto-optimise-store = true;
 
   # Use latest kernel.
   boot.kernelPackages = pkgs.linuxPackages_latest;
 
-  networking.hostName = "nixos"; # Define your hostname.
-  # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
-  # Configure network proxy if necessary
-  # networking.proxy.default = "http://user:password@proxy:port/";
-  # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
-
-  # Enable networking
-  networking.networkmanager.enable = true;
-
-  # Enable the X11 windowing system.
-  # You can disable this if you're only using the Wayland session.
-  services.xserver.enable = true;
-
-  # Enable the KDE Plasma Desktop Environment.
-  services.displayManager.sddm.enable = true;
-  services.desktopManager.plasma6.enable = true;
-
-  # Enable CUPS to print documents.
-  services.printing.enable = true;
-
-  # Enable sound with pipewire.
-  services.pulseaudio.enable = false;
-  security.rtkit.enable = true;
-  services.pipewire = {
-    enable = true;
-    alsa.enable = true;
-    alsa.support32Bit = true;
-    pulse.enable = true;
-    # If you want to use JACK applications, uncomment this
-    #jack.enable = true;
-
-    # use the example session manager (no others are packaged yet so this is enabled by default,
-    # no need to redefine it in your config for now)
-    #media-session.enable = true;
+  networking = {
+    hostName = "nixos"; # Define your hostname.
+    networkmanager.enable = true; # Enable networking
+    # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
+    # networking.proxy.default = "http://user:password@proxy:port/"; # Configure network proxy if necessary
+    # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
   };
 
-  # Enable touchpad support (enabled default in most desktopManager).
-  # services.xserver.libinput.enable = true;
+  services = {
+    xserver.enable = true; # Enable the X11 windowing system. You can disable this if you're only using the Wayland session.
+    displayManager.sddm.enable = true; # Enable the KDE Plasma Desktop Environment.
+    desktopManager.plasma6.enable = true;
+    printing.enable = true; # Enable CUPS to print documents.
+    pulseaudio.enable = false; # Enable sound with pipewire.
+    pipewire = {
+      enable = true;
+      alsa.enable = true;
+      alsa.support32Bit = true;
+      pulse.enable = true;
+      #jack.enable = true; # If you want to use JACK applications, uncomment this
+      #media-session.enable = true; # use the example session manager (no others are packaged yet so this is enabled by default, no need to redefine it in your config for now)
+    };
+  };
+
+  security.rtkit.enable = true;
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users.users."${local.sysName}" = {
