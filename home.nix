@@ -3,13 +3,12 @@ let
   local = import ./local.nix;
 in
 {
-  home ={
+  home = {
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
     packages = with pkgs; [ # Paquets installés uniquement pour ta session utilisateur
       vlc
       vscode
-      fastfetch
       easyeffects
       spotify
       unzip
@@ -17,14 +16,17 @@ in
       heroic
       protonup-qt
       keepassxc
-      firefox
       obs-studio
       google-chrome
       mangohud
       goverlay
       vesktop
-      gamescope
       lact
+      gamescope
+      fastfetch
+      htop
+      nvtopPackages.amd
+      pavucontrol
 
     # Discord + Vencord
       (discord.override {
@@ -44,6 +46,26 @@ in
     settings = {
       user.name = local.gitName;
       user.email = local.gitEmail;
+    };
+  };
+
+  programs.firefox = {
+    enable = true;
+    profiles.${local.sysName} = {
+      isDefault = true;
+      settings = {
+        "browser.cache.disk.enable" = false; # Bascule du cache disque vers la RAM (1 Go max)
+        "browser.cache.memory.enable" = true;
+        "browser.cache.memory.capacity" = 1048576;
+        "gfx.webrender.all" = true; # Accélération matérielle et rendu GPU sous Wayland
+        "media.hardware-video-decoding.enabled" = true;
+        "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
+      };
+      userChrome = ''
+        #tabbrowser-tabs .tabbrowser-tab {
+          min-width: 0px !important;
+        }
+      '';
     };
   };
 

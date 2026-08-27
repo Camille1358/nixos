@@ -15,7 +15,6 @@ in
       ./alias.nix
       ./localisation.nix
       ./nixos_instable.nix
-      ./gaming_driver.nix
       ./packages.nix
       <home-manager/nixos>
     ];
@@ -37,9 +36,14 @@ in
       "vm.swappiness" = 10; # Réduit l'utilisation du swap pour améliorer les performances
       "net.core.default_qdisc" = "fq"; # Utilise l'algorithme de file d'attente FQ pour améliorer la gestion du trafic réseau
       "net.ipv4.tcp_congestion_control" = "bbr"; # Active l'algorithme de contrôle de congestion BBR pour améliorer les performances réseau
+      "vm.dirty_bytes" = 268435456; # 256 Mo, Fluidité système et suppression des micro-gels I/O (E/S Disque)
+      "vm.dirty_background_bytes" = 67108864; # 64 Mo
     };
+    kernelParams = [ 
+      "split_lock_detect=off" # Élimination des stutterings
+      "amdgpu.ppfeaturemask=0xffffffff"
+    ]; 
     kernelPackages = pkgs.linuxPackages_latest; # Use latest kernel.
-    kernelParams = [ "split_lock_detect=off" ]; # Élimination des stutterings
   };
 
   # auto-update
@@ -99,6 +103,9 @@ in
     #  thunderbird
     ];
   };
+
+  # Ferme immédiatement le processus fautif en cas d'épuisement de la RAM pour éviter le gel complet du système.
+  systemd.oomd.enable = true;
 
   # Gestion de la mémoire et réactivité système
   zramSwap.enable = true;
