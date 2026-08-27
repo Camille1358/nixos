@@ -14,13 +14,16 @@ in
       spotify
       unzip
       lutris-free
+      heroic
       protonup-qt
       keepassxc
       firefox
       obs-studio
       google-chrome
       mangohud
+      goverlay
       vesktop
+      gamescope
 
     # Discord + Vencord
       (discord.override {
