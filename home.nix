@@ -21,7 +21,7 @@ in
       google-chrome
       mangohud
       vesktop
-      
+
     # Discord + Vencord
       (discord.override {
         withVencord = true;
