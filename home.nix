@@ -57,9 +57,6 @@ in
       settings = {
         "privacy.resistFingerprinting" = true; # Active la protection contre le fingerprinting pour une meilleure confidentialité
         "privacy.donottrackheader.enabled" = false; # Désactive l'envoi de l'en-tête Do Not Track pour une meilleur protection contre le fingerprinting
-        "layout.css.prefers-color-scheme.content-override" = 0; # Forcer le mode sombre pour les sites et Firefox (outrepasse le blanc du FPP on) 0 = Darkmode
-        "ui.systemUsesDarkTheme" = 1; 
-        "browser.theme.content-theme" = 0;
         "browser.cache.disk.enable" = false; # Bascule du cache disque vers la RAM (1 Go max)
         "browser.cache.memory.enable" = true;
         "browser.cache.memory.capacity" = 1048576;
