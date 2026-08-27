@@ -8,7 +8,7 @@
       remotePlay.openFirewall = true;
       dedicatedServer.openFirewall = true;
     };
-    gamescope.enable = true; #gamescope for game stability
-    gamemode.enable = true; #gamemode for game stability & performance
+    gamescope.enable = true; # gameScope for game stability
+    gamemode.enable = true; # gameMode for game stability & performance
   };
 }
