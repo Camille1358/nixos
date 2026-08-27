@@ -51,15 +51,21 @@ in
 
   programs.firefox = {
     enable = true;
+    configPath = ".mozilla/firefox";
     profiles.${local.sysName} = {
       isDefault = true;
       settings = {
-        "privacy.resistFingerprinting" = true;
+        "privacy.resistFingerprinting" = true; # Active la protection contre le fingerprinting pour une meilleure confidentialité
+        "privacy.donottrackheader.enabled" = false; # Désactive l'envoi de l'en-tête Do Not Track pour une meilleur protection contre le fingerprinting
+        "layout.css.prefers-color-scheme.content-override" = 0; # Forcer le mode sombre pour les sites et Firefox (outrepasse le blanc du FPP on) 0 = Darkmode
+        "ui.systemUsesDarkTheme" = 1; 
+        "browser.theme.content-theme" = 0;
         "browser.cache.disk.enable" = false; # Bascule du cache disque vers la RAM (1 Go max)
         "browser.cache.memory.enable" = true;
         "browser.cache.memory.capacity" = 1048576;
         "gfx.webrender.all" = true; # Accélération matérielle et rendu GPU sous Wayland
         "media.hardware-video-decoding.enabled" = true;
+        "browser.startup.page" = 3; # Reouvrir automatiquement la derniere session (onglets ouverts)
         "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
       }; # Desactivation taille minimale des onglets pour plus de fluidité et d'espace sur la barre d'onglets
       userChrome = '' 
