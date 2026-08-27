@@ -27,15 +27,12 @@ in
   };
 
   # Bootloader.
-  boot.loader = {
-    systemd-boot.enable = true;
-    efi.canTouchEfiVariables = true;
-  };
-
-  # Connexion automatique sans mot de passe
-  services.displayManager.autoLogin = {
-    enable = true;
-    user = local.sysName;
+  boot = {
+    loader = {
+      systemd-boot.enable = true;
+      efi.canTouchEfiVariables = true;
+    };
+    kernelPackages = pkgs.linuxPackages_latest; # Use latest kernel.
   };
 
   #auto-update
@@ -53,9 +50,6 @@ in
     settings.auto-optimise-store = true; #auto-optimise store
   };
 
-  # Use latest kernel.
-  boot.kernelPackages = pkgs.linuxPackages_latest;
-
   networking = {
     hostName = "nixos"; # Define your hostname.
     networkmanager.enable = true; # Enable networking
@@ -66,7 +60,6 @@ in
 
   services = {
     xserver.enable = true; # Enable the X11 windowing system. You can disable this if you're only using the Wayland session.
-    displayManager.sddm.enable = true; # Enable the KDE Plasma Desktop Environment.
     desktopManager.plasma6.enable = true;
     printing.enable = true; # Enable CUPS to print documents.
     pulseaudio.enable = false; # Enable sound with pipewire.
@@ -77,6 +70,13 @@ in
       pulse.enable = true;
       #jack.enable = true; # If you want to use JACK applications, uncomment this
       #media-session.enable = true; # use the example session manager (no others are packaged yet so this is enabled by default, no need to redefine it in your config for now)
+    };
+    displayManager = {
+      sddm.enable = true; # Enable the KDE Plasma Desktop Environment.
+      autoLogin = { # Connexion automatique sans mot de passe
+        enable = true;
+        user = local.sysName;
+      };
     };
   };
 
