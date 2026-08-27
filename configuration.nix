@@ -45,10 +45,12 @@ in
   };
 
   nix = {
-  gc.automatic = true; #automatic garbage collection
-  gc.dates = "weekly";
-  gc.options = "--delete-older-than +100";
-  settings.auto-optimise-store = true; #auto-optimise store
+    gc = {
+      automatic = true; #automatic garbage collection
+      dates = "weekly";
+      options = "--delete-older-than 100d"; #delete packages older than 100 days
+    };
+    settings.auto-optimise-store = true; #auto-optimise store
   };
 
   # Use latest kernel.
