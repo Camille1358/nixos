@@ -7,6 +7,8 @@ let
   };
 in
 {
-  hardware.graphics.package = pkgs-unstable.mesa;
-  hardware.graphics.package32 = pkgs-unstable.pkgsi686Linux.mesa;
+  hardware.graphics ={
+    package = pkgs-unstable.mesa;
+    package32 = pkgs-unstable.pkgsi686Linux.mesa;
+  };
 }

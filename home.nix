@@ -71,6 +71,8 @@ in
         "browser.cache.disk.enable" = false; # Bascule du cache disque vers la RAM (1 Go max)
         "browser.cache.memory.enable" = true;
         "browser.cache.memory.capacity" = 1048576;
+        "webgl.enable-debug-renderer-info" = false; # Masque le modèle exact de la carte graphique dans WebGL
+        "webgl.disabled" = true; # Désactive WebGL pour éviter les fuites d'informations sur le GPU
         "gfx.webrender.all" = true; # Accélération matérielle et rendu GPU sous Wayland
         "media.hardware-video-decoding.enabled" = true;
         "browser.startup.page" = 3; # Reouvrir automatiquement la derniere session (onglets ouverts)
