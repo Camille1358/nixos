@@ -28,11 +28,7 @@
     variant = "";
   };
 
-  environment.sessionVariables = { # Tout sauf environnement de bureau et kde on l'UTC classique (+confidentialité)
-    TZ = "UTC";
-  };
-
-  # Gestion des polices pour une meilleure compatibilité et lisibilité
+  # Gestion des polices pour une meilleure compatibilité et lisibilité (+confidentialité)
   fonts = {
     enableDefaultPackages = false; # Désactive les paquets de polices par défaut inutiles
     packages = with pkgs; [
