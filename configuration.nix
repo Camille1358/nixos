@@ -16,6 +16,7 @@ in
       ./localisation.nix
       ./nixos_instable.nix
       ./packages.nix
+      ./startup.nix
       <home-manager/nixos>
     ];
 
@@ -75,6 +76,7 @@ in
   };
 
   services = {
+    lact.enable = true; # Active le lact qui surveil la température et la charge du CPU pour une meilleure gestion thermique et énergétique
     xserver.enable = true; # Enable the X11 windowing system. You can disable this if you're only using the Wayland session.
     desktopManager.plasma6.enable = true;
     printing.enable = true; # Enable CUPS to print documents.
@@ -90,6 +92,7 @@ in
     };
     displayManager = {
       sddm.enable = true; # Enable the KDE Plasma Desktop Environment.
+      sddm.autoNumlock = true; # Active le numlock dans kde par defaul
       autoLogin = { # Connexion automatique sans mot de passe
         enable = true;
         user = local.sysName;

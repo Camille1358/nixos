@@ -20,6 +20,8 @@ in
       google-chrome
       mangohud
       goverlay
+      tor-browser
+      mullvad-browser
       vesktop
       lact
       gamescope
@@ -27,14 +29,16 @@ in
       htop
       nvtopPackages.amd
       pavucontrol
+      sublime3
+      qalculate-qt
 
-    # Discord + Vencord
-      (discord.override {
+    # Discord PTB + Vencord
+      (discord-ptb.override {
         withVencord = true;
       })
 
-      # Discord PTB + Vencord
-      (discord-ptb.override {
+      # Discord + Vencord
+      (discord.override {
         withVencord = true;
       })
     ];
@@ -55,6 +59,7 @@ in
     profiles.${local.sysName} = {
       isDefault = true;
       settings = {
+        "general.autoScroll" = true; # Active le défilement automatique pour une meilleure fluidité de navigation
         "privacy.resistFingerprinting" = false; # Protection contre le fingerprinting (+++FingerprintingResist, mais lourd sur l'ergo)
         "privacy.fingerprintingProtection" = true; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
         "dom.security.https_only_mode" = true; # Mode HTTPS (+confidentialité & sécurité)
@@ -68,6 +73,8 @@ in
         "network.dns.disablePrefetch" = true; # Désactive la prélecture DNS (+confidentialité)
         "app.shield.optoutstudies.enabled" = false; # Empêche Mozilla de participer à des études de télémétrie (+confidentialité)
         "network.prefetch-next" = false; # Désactive la prélecture des liens (+confidentialité)
+        "device.sensors.enabled" = false; # Désactive l'accès aux capteurs de l'appareil (+confidentialité)
+        "dom.gamepad.enabled" = false; # Empêche la détection et l'énumération de manettes connectées. (+confidentialité)
         "browser.cache.disk.enable" = false; # Bascule du cache disque vers la RAM (1 Go max)
         "browser.cache.memory.enable" = true;
         "browser.cache.memory.capacity" = 1048576;
