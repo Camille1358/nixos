@@ -61,12 +61,12 @@ in
       settings = {
         "general.autoScroll" = true; # Active le défilement automatique pour une meilleure fluidité de navigation
         "privacy.resistFingerprinting" = false; # Protection contre le fingerprinting (+++FingerprintingResist, mais lourd sur l'ergo)
-        "privacy.fingerprintingProtection" = false; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
+        "privacy.fingerprintingProtection" = true; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
         "dom.security.https_only_mode" = true; # Mode HTTPS (+confidentialité & sécurité)
         "privacy.donottrackheader.enabled" = false; # Désactive l'envoi de l'en-tête Do Not Track (+FingerprintingResist)
-        "privacy.trackingprotection.enabled" = false; # Protection contre le tracking (+confidentialité)
-        "datareporting.healthreport.uploadEnabled" = true; # Désactive l'envoi de rapports (+confidentialité)
-        "app.normandy.enabled" = true; # Empêche Mozilla d'exécuter à distance des expérimentations ou des modifications (+confidentialité)
+        "privacy.trackingprotection.enabled" = true; # Protection contre le tracking (+confidentialité)
+        "datareporting.healthreport.uploadEnabled" = false; # Désactive l'envoi de rapports (+confidentialité)
+        "app.normandy.enabled" = false; # Empêche Mozilla d'exécuter à distance des expérimentations ou des modifications (+confidentialité)
         "geo.enabled" = false; # Désactive la géolocalisation (+confidentialité)
         "media.peerconnection.ice.no_host" = true; # Désactive la découverte d'adresses IP locales via WebRTC (+confidentialité)
         "network.predictor.enabled" = false; # Désactive la prédiction de navigation (+confidentialité)
