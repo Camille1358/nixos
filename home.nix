@@ -82,7 +82,7 @@ in
         "media.navigator.enabled" = false; # Désactive l'accès à la caméra et au micro (+confidentialité)
         "dom.maxHardwareConcurrency" = 4; # Limite le nombre de threads pour réduire l'empreinte digitale (+FingerprintingResist)
         "webgl.enable-debug-renderer-info" = false; # Masque le modèle exact de la carte graphique dans WebGL
-        "webgl.disabled" = true; # Désactive WebGL pour éviter les fuites d'informations sur le GPU
+        "webgl.disabled" = false; # Désactive WebGL pour éviter les fuites d'informations sur le GPU (désactive map génie)
         "gfx.webrender.all" = true; # Accélération matérielle et rendu GPU sous Wayland
         "media.hardware-video-decoding.enabled" = true;
         "browser.startup.page" = 3; # Reouvrir automatiquement la derniere session (onglets ouverts)
