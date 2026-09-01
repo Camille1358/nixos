@@ -18,15 +18,36 @@
   };
 
   fileSystems."/" =
-    { device = "/dev/disk/by-uuid/0b4fb5b1-c6be-4138-8cc7-64c251dfffc2";
+    { device = "/dev/disk/by-uuid/0b4fb5b1-c6be-4138-8cc7-64c251dfffc2"; #root NVME 4T
       fsType = "ext4";
     };
 
   fileSystems."/boot" =
-    { device = "/dev/disk/by-uuid/F476-0F8B";
+    { device = "/dev/disk/by-uuid/F476-0F8B"; #efi pour le root sur le meme NVME
       fsType = "vfat";
       options = [ "fmask=0077" "dmask=0077" ];
     };
+
+    fileSystems."/storage/NVME" =
+  {
+    device = "/dev/disk/by-uuid/8800BF7100BF653A"; #nvme
+    fsType = "ntfs";
+    options = [ "defaults" "nofail" "noatime" "uid=1000" "gid=100" "umask=022" ];
+  };
+
+  fileSystems."/storage/HDD" =
+  { 
+    device = "/dev/disk/by-uuid/1E459C1E6E68CCC9"; #HDD intnerne
+    fsType = "ntfs";
+    options = [ "defaults" "nofail" "noatime" ];
+  };
+
+    fileSystems."/storage/HDD-ext" =
+  { 
+    device = "/dev/disk/by-uuid/0212EF0212EEFA15"; #HDD externe
+    fsType = "ext4";
+    options = [ "defaults" "nofail" "noatime" ];
+  };
 
   swapDevices =
     [ { device = "/dev/disk/by-uuid/f0a4a960-0944-486d-b4a3-1e10f10c5845"; }

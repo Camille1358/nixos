@@ -1,6 +1,7 @@
 { config, pkgs, ... }:
 let
   local = import ./local.nix;
+  pkgs-stable-latest = import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz") {};
 in
 {
   home = {
@@ -20,8 +21,8 @@ in
       google-chrome
       mangohud
       goverlay
-      tor-browser
-      mullvad-browser
+      pkgs-stable-latest.tor-browser
+      pkgs-stable-latest.mullvad-browser
       vesktop
       lact
       gamescope
