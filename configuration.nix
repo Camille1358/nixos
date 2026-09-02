@@ -46,6 +46,7 @@ in
       "amdgpu.ppfeaturemask=0xffffffff"
     ]; 
     kernelPackages = pkgs.linuxPackages_latest; # Use latest kernel.
+    supportedFilesystems = [ "ntfs" "exfat" ]; 
   };
 
   # auto-update

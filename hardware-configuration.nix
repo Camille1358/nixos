@@ -45,7 +45,7 @@
     fileSystems."/storage/HDD-ext" =
   { 
     device = "/dev/disk/by-uuid/0212EF0212EEFA15"; #HDD externe
-    fsType = "ext4";
+    fsType = "ntfs";
     options = [ "defaults" "nofail" "noatime" ];
   };
 
