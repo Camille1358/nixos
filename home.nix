@@ -21,8 +21,8 @@ in
       google-chrome
       mangohud
       goverlay
-      pkgs-stable-latest.tor-browser
-      pkgs-stable-latest.mullvad-browser
+      unstable.tor-browser #dernière version possible "unstable"
+      unstable.mullvad-browser #dernière version sur la stable "pkgs-stable-latest.mullvad-browser"
       vesktop
       lact
       gamescope
@@ -32,6 +32,7 @@ in
       pavucontrol
       sublime3
       qalculate-qt
+      rocmPackages.cls-launch
 
     # Discord PTB + Vencord
       (discord-ptb.override {
