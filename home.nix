@@ -1,9 +1,14 @@
 { config, pkgs, ... }:
 let
   local = import ./local.nix;
+  pkgs = import <nixpkgs> {};
   pkgs-stable-latest = import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz") {};
+  pkgs-unstable = import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {};
 in
 {
+  nix.extraOptions = ''
+    tarball-ttl = 0
+  '';
   home = {
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
@@ -21,8 +26,8 @@ in
       google-chrome
       mangohud
       goverlay
-      unstable.tor-browser #dernière version possible "unstable"
-      unstable.mullvad-browser #dernière version sur la stable "pkgs-stable-latest.mullvad-browser"
+      pkgs-unstable.tor-browser #dernière version possible "pkgs-unstable"
+      pkgs-unstable.mullvad-browser #dernière version sur la stable "pkgs-stable-latest.mullvad-browser"
       vesktop
       lact
       gamescope
@@ -32,7 +37,6 @@ in
       pavucontrol
       sublime3
       qalculate-qt
-      rocmPackages.cls-launch
 
     # Discord PTB + Vencord
       (discord-ptb.override {
@@ -96,6 +100,19 @@ in
         }
       '';
     };
+  };
+
+  systemd.services.auto-update-on-boot = {
+  description = "Mise a jour des paquets au demarrage";
+  after = [ "network-online.target" ];
+  wants = [ "network-online.target" ];
+  wantedBy = [ "multi-user.target" ];
+  serviceConfig = {
+    Type = "oneshot";
+  };
+  script = ''
+    ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch --refresh
+  '';
   };
 
   # Active la gestion de Home Manager par lui-même
