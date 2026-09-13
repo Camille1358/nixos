@@ -20,6 +20,8 @@ in
       <home-manager/nixos>
     ];
 
+  nixpkgs.config.allowUnfree = true; # Allow unfree packages
+
   home-manager = { # Home-manager configuration
     useGlobalPkgs = true; # Utilise les paquets du système pour éviter les doublons
     useUserPackages = true; # Installe les paquets directement dans le profil utilisateur
@@ -118,9 +120,6 @@ in
 
   # Gestion de la mémoire et réactivité système
   zramSwap.enable = true;
-
-  # Allow unfree packages
-  nixpkgs.config.allowUnfree = true;
 
   # List packages installed in system profile. To search, run:
   # $ nix search wget

@@ -1,10 +1,23 @@
 { config, pkgs, ... }:
+
 let
   local = import ./local.nix;
-  pkgs = import <nixpkgs> {};
-  pkgs-stable-latest = import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz") {};
-  pkgs-unstable = import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {};
+  pkgs-stable-latest = import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz") {
+    config.allowUnfree = true;
+  };
+  pkgs-unstable = import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {
+    config.allowUnfree = true;
+  };
+
+  handySrc = builtins.fetchTarball {
+    url = "https://github.com/cjpais/handy/archive/main.tar.gz";
+  };
+  flakeCompat = builtins.fetchTarball {
+    url = "https://github.com/edolstra/flake-compat/archive/master.tar.gz";
+  };
+  handy = (import flakeCompat { src = handySrc; }).defaultNix.packages.${pkgs.system}.default;
 in
+
 {
   nix.extraOptions = ''
     tarball-ttl = 0
@@ -12,7 +25,7 @@ in
   home = {
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
-    packages = with pkgs; [ # Paquets installés uniquement pour ta session utilisateur
+    packages = with pkgs; [ # Paquets installés uniquement pour la session utilisateur
       vlc
       vscode
       easyeffects
@@ -37,6 +50,7 @@ in
       pavucontrol
       sublime3
       qalculate-qt
+      handy
 
     # Discord PTB + Vencord
       (discord-ptb.override {
@@ -67,7 +81,7 @@ in
       settings = {
         "general.autoScroll" = true; # Active le défilement automatique pour une meilleure fluidité de navigation
         "privacy.resistFingerprinting" = false; # Protection contre le fingerprinting (+++FingerprintingResist, mais lourd sur l'ergo)
-        "privacy.fingerprintingProtection" = true; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
+        "privacy.fingerprintingProtection" = false; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
         "dom.security.https_only_mode" = true; # Mode HTTPS (+confidentialité & sécurité)
         "privacy.donottrackheader.enabled" = false; # Désactive l'envoi de l'en-tête Do Not Track (+FingerprintingResist)
         "privacy.trackingprotection.enabled" = true; # Protection contre le tracking (+confidentialité)
@@ -100,19 +114,6 @@ in
         }
       '';
     };
-  };
-
-  systemd.services.auto-update-on-boot = {
-  description = "Mise a jour des paquets au demarrage";
-  after = [ "network-online.target" ];
-  wants = [ "network-online.target" ];
-  wantedBy = [ "multi-user.target" ];
-  serviceConfig = {
-    Type = "oneshot";
-  };
-  script = ''
-    ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch --refresh
-  '';
   };
 
   # Active la gestion de Home Manager par lui-même
