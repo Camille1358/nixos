@@ -5,13 +5,17 @@ let
 in
 
 {
-  # Services applicatifs
+  # =========================================================================
+  # PAQUETS SYSTÈME GÉNÉRAUX & OUTILS CLI IA
+  # =========================================================================
+
+  # Services applicatifs annexes
   services.redis.servers.llm-cache = {
     enable = true;
     port = 6379;
   };
 
-  # Service d'automatisation n8n
+  # 7.4 Orchestrateur Système
   services.n8n.enable = true;
 
   # =========================================================================
@@ -26,7 +30,7 @@ in
     enable = true;
     enable32Bit = true;
     extraPackages = with pkgs; [
-      rocmPackages.clr.icd # Moteur ICD HIP/OpenCL pour GPU AMD
+      rocmPackages.clr.icd
     ];
   };
 
@@ -44,10 +48,10 @@ in
   ];
 
   # =========================================================================
-  # NIVEAU 1 : INFÉRENCE LOCALE & MOTEURS DE MODÈLES
+  # NIVEAU 1 : INFÉRENCE LOCALE, MODÈLES SPÉCIALISÉS & FINE-TUNING
   # =========================================================================
 
-  # 1.1 Moteur Local Ollama
+  # 1.1 Backend Local Général (Ollama ROCm)
   services.ollama = {
     enable = true;
     package = pkgs.ollama-rocm;
@@ -62,7 +66,7 @@ in
     ];
   };
 
-  # 1.2 Moteur d'Inférence Rust (mistral.rs)
+  # 1.2 Backend Rust (mistral.rs)
   systemd.services.mistralrs = {
     description = "Moteur d'inférence mistral.rs (Niveau 1.2)";
     after = [ "network.target" ];
@@ -70,20 +74,23 @@ in
     
     environment = {
       HSA_OVERRIDE_GFX_VERSION = "10.3.0";
-      HF_HOME = "/var/lib/mistralrs"; # Redirige le cache Hugging Face dans le dossier persistant du service
+      HF_HOME = "/var/lib/mistralrs"; # Stockage du cache Hugging Face
     };
     
     serviceConfig = {
-      ExecStart = "${pkgs.mistral-rs}/bin/mistralrs-server --port 1234 plain -m Qwen/Qwen2.5-Coder-7B-Instruct -f plain";
+      ExecStart = "${pkgs.mistral-rs}/bin/mistralrs-server --port 1234 plain -m Qwen/Qwen2.5-Coder-7B-Instruct";
       Restart = "on-failure";
       RestartSec = "5s";
+      StateDirectory = "mistralrs";
+      
+      # Autorisations matérielles GPU AMD
       DynamicUser = true;
-      StateDirectory = "mistralrs"; # Crée /var/lib/mistralrs avec les bonnes permissions
-      SupplementaryGroups = [ "video" "render" ]; # Donne l'accès au GPU AMD au service
+      PrivateDevices = false;
+      SupplementaryGroups = [ "video" "render" ];
     };
   };
 
-  # 1.4 Support Fine-Tuning (Axolotl) / Docker ROCm
+  # 1.4 Fine-Tuning Sans-Code (Docker ROCm / Axolotl)
   virtualisation.docker = {
     enable = true;
     extraOptions = "--add-runtime rocm=/usr/bin/docker-containerd-runtime-current";
@@ -93,41 +100,10 @@ in
   users.users.${local.sysName}.extraGroups = [ "video" "render" "docker" ];
 
   # =========================================================================
-  # NIVEAU 2 : UNIFICATION & PROXY GATEWAY (LiteLLM)
+  # NIVEAU 2 : MÉMOIRE, BASES VECTORIELLES, EMBEDDINGS & PKM
   # =========================================================================
 
-  # 2.1 LiteLLM Gateway (Centralise Ollama + mistral.rs sur le port 4000)
-  services.litellm = {
-    enable = true;
-    host = "127.0.0.1";
-    port = 4000;
-    settings = {
-      model_list = [
-        # Routage vers mistral.rs (Port 1234)
-        {
-          model_name = "qwen-coder";
-          litellm_params = {
-            model = "openai/Qwen/Qwen2.5-Coder-7B-Instruct";
-            api_base = "http://127.0.0.1:1234/v1";
-            api_key = "none";
-          };
-        }
-        # Routage vers Ollama ROCm (Port 11434)
-        {
-          model_name = "ollama-general";
-          litellm_params = {
-            model = "ollama/llama3.2";
-            api_base = "http://127.0.0.1:11434";
-          };
-        }
-      ];
-    };
-  };
-
-  # =========================================================================
-  # NIVEAU 3 : BASE VECTORIELLE & MÉMOIRE CONTEXTUELLE (Qdrant)
-  # =========================================================================
-
+  # 2.1 Vector DB Principale (Qdrant)
   services.qdrant = {
     enable = true;
     settings = {
@@ -144,6 +120,78 @@ in
         on_disk = true;
       };
       telemetry_disabled = true;
+    };
+  };
+
+  # CONTENEURS DÉCLARATIFS OCI (2.3, 2.4, 3.1)
+  virtualisation.oci-containers = {
+    backend = "docker";
+    containers = {
+      # 2.3 Embeddings & Rerank (HuggingFace Text Embeddings Inference - TEI)
+      tei-embeddings = {
+        image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.6";
+        ports = [ "8080:80" ];
+        cmd = [ "--model-id" "BAAI/bge-large-en-v1.5" ];
+        extraOptions = [ "--device=/dev/kfd" "--device=/dev/dri" ];
+      };
+
+      # 2.4 Mémoire Long Terme (Mem0 Server)
+      mem0-service = {
+        image = "mem0/mem0:latest";
+        ports = [ "8081:8000" ];
+        environment = {
+          QDRANT_HOST = "http://127.0.0.1:6333";
+        };
+      };
+
+  # =========================================================================
+  # NIVEAU 3 : ROUTAGE HYBRIDE, PASSERELLE DOUBLE-COUCHE & CASCHING SÉMANTIQUE
+  # =========================================================================
+
+      # 3.1 Façade Utilisateur (OmniRoute)
+      omniroute = {
+        image = "omniroute/omniroute:latest";
+        ports = [ "3000:3000" ];
+        environment = {
+          LITELLM_BASE_URL = "http://127.0.0.1:4000";
+        };
+      };
+    };
+  };
+
+  # 3.2 Proxy Backend Backend (LiteLLM)
+  services.litellm = {
+    enable = true;
+    host = "127.0.0.1";
+    port = 4000;
+    settings = {
+      model_list = [
+        # Routage vers mistral.rs (1.2)
+        {
+          model_name = "qwen-coder";
+          litellm_params = {
+            model = "openai/Qwen/Qwen2.5-Coder-7B-Instruct";
+            api_base = "http://127.0.0.1:1234/v1";
+            api_key = "none";
+          };
+        }
+        # Routage vers Ollama ROCm (1.1)
+        {
+          model_name = "ollama-general";
+          litellm_params = {
+            model = "ollama/llama3.2";
+            api_base = "http://127.0.0.1:11434";
+          };
+        }
+        # Routage vers TEI Embeddings (2.3)
+        {
+          model_name = "bge-embeddings";
+          litellm_params = {
+            model = "openai/BAAI/bge-large-en-v1.5";
+            api_base = "http://127.0.0.1:8080/v1";
+          };
+        }
+      ];
     };
   };
 }

@@ -59,6 +59,10 @@ in
       mistral-rs
       clinfo
       rocmPackages.rocminfo
+      (python3.withPackages (ps: with ps; [
+        lancedb
+        pyarrow
+      ]))
     #--------------------------------------------------------------------------------------------------
 
     # Discord PTB + Vencord
