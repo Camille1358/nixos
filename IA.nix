@@ -26,13 +26,15 @@ in
   # 0.1 Pilotage Matériel & Drivers ROCm / HIP
   boot.initrd.kernelModules = [ "amdgpu" ];
   boot.kernelParams = [
-    "amdgpu.vm_fragment_size=9"       # Aligne la taille des pages VRAM pour réduire la fragmentation sous ROCm
-    "amdgpu.ppfeaturemask=0xffffffff" # Débloque la gestion avancée de la puissance et des fréquences GPU
+    "amdgpu.vm_fragment_size=9"       # Alignement de la taille de page VRAM pour réduire la fragmentation
+    "amdgpu.ppfeaturemask=0xffffffff" # Gestion débridée des fréquences/puissances GPU
+    "amdgpu.gpu_recovery=1"           # Récupération automatique du GPU sans plantage du système en cas d'OOM
   ];
 
   # Suppression des plafonds d'allocation mémoire pour le runtime ROCm/HIP
   security.pam.loginLimits = [
     { domain = "*"; item = "memlock"; type = "-"; value = "unlimited"; }
+    { domain = "*"; item = "nofile";  type = "-"; value = "1048576"; }
   ];
 
   # Drivers graphiques et bibliothèques de calcul HIP / ROCm / OpenCL
@@ -43,6 +45,7 @@ in
       rocmPackages.clr.icd
       rocmPackages.rocblas
       rocmPackages.hipblas
+      rocmPackages.rocm-smi
     ];
   };
 
@@ -50,11 +53,13 @@ in
 
   # Variables d'environnement globales pour le pilotage ROCm / PyTorch
   environment.variables = {
-    HSA_OVERRIDE_GFX_VERSION = "10.3.0";          # Spoof architecture RDNA2 (RX 6000 / RDNA GPU)
+    HSA_OVERRIDE_GFX_VERSION = "10.3.0";          # Spoof RDNA2 pour compatibilité ROCm universelle
     ROC_ENABLE_PRE_VEGA = "0";
-    PYTORCH_ROCM_ALLOC_CONF = "max_split_size_mb:512"; # Prévient les erreurs Out-Of-Memory VRAM
+    PYTORCH_ROCM_ALLOC_CONF = "max_split_size_mb:512"; # Allocation mémoire granulaire PyTorch
     HIP_VISIBLE_DEVICES = "0";
-    AMD_LOG_LEVEL = "0";                          # Désactive le verbiage de debug ROCm
+    GPU_MAX_ALLOC_PERCENT = "100";
+    GPU_SINGLE_ALLOC_PERCENT = "100";
+    AMD_LOG_LEVEL = "0";                          # Suppression des logs verbeux ROCm
   };
 
   # Lien symbolique requis pour les runtimes HIP/ROCm natifs
@@ -66,52 +71,51 @@ in
   # NIVEAU 1 : INFÉRENCE LOCALE, MODÈLES SPÉCIALISÉS & FINE-TUNING
   # =========================================================================
 
-# 1.1 Backend Local Général (Ollama ROCm)
+  # 1.1 Backend Local Général (Ollama ROCm)
   services.ollama = {
     enable = true;
     package = pkgs.ollama-rocm;
     rocmOverrideGfx = "10.3.0";
-    host = "0.0.0.0"; # Écoute universelle pour requêtes locales, conteneurs Docker & sous-réseaux
+    host = "0.0.0.0";
     port = 11434;
 
     # Injection directe des variables de comportement du serveur d'inférence
     environmentVariables = {
       HSA_OVERRIDE_GFX_VERSION = "10.3.0";
-      OLLAMA_NUM_PARALLEL = "4";         # Traitement de 4 requêtes d'agents simultanées
-      OLLAMA_MAX_LOADED_MODELS = "2";    # Maintient 2 modèles actifs en VRAM sans déchargement
-      OLLAMA_KEEP_ALIVE = "24h";         # Persistance indéfinie en VRAM pour zéro latence au démarrage
-      OLLAMA_FLASH_ATTENTION = "1";      # Utilisation du Flash Attention pour diviser l'usage VRAM du contexte
-      OLLAMA_ORIGINS = "*";              # Autorise les requêtes Cross-Origin (CORS) pour Open WebUI & Dify
+      OLLAMA_NUM_PARALLEL = "4";         # Inférence simultanée de 4 requêtes d'agents
+      OLLAMA_MAX_LOADED_MODELS = "2";    # Maintient 2 modèles distincts réservés en VRAM
+      OLLAMA_KEEP_ALIVE = "24h";         # Aucune décharge VRAM pour zéro latence au démarrage
+      OLLAMA_FLASH_ATTENTION = "1";      # Utilisation du Flash Attention pour diviser l'empreinte VRAM
+      OLLAMA_ORIGINS = "*";              # Autorise les appels CORS multi-domaines
+      OLLAMA_KV_CACHE_TYPE = "q4_0";     # Quantification du KV cache pour quadrupler la fenêtre de contexte
     };
 
-    # Téléchargement déclaratif de la suite de modèles de base
     loadModels = [
       "qwen2.5-coder:14b"
       "deepseek-r1:14b"
-      "bge-m3"                           # Modèle d'embeddings multimodal local
+      "bge-m3"
     ];
   };
 
   # 1.2 Backend Rust Rapide (mistral.rs)
   systemd.services.mistralrs = {
-    description = "Moteur d'inférence ultra-rapide mistral.rs (Niveau 1.2)";
+    description = "Serveur d'Inférence Rust mistral.rs (Niveau 1.2)";
     after = [ "network.target" ];
     wantedBy = [ "multi-user.target" ];
 
     environment = {
       HSA_OVERRIDE_GFX_VERSION = "10.3.0";
-      HSA_ENABLE_SDMA = "0";             # Évite le goulot d'étranglement du bus PCIe en calcul pur
+      HSA_ENABLE_SDMA = "0";
       HF_HOME = "/var/lib/mistralrs";
     };
 
     serviceConfig = {
-      # Activation du Paged Attention et chargement du modèle Qwen Coder
-      ExecStart = "${pkgs.mistral-rs}/bin/mistralrs-server --port 1234 --paged-attn plain -m Qwen/Qwen2.5-Coder-7B-Instruct";
+      ExecStart = "${pkgs.mistral-rs}/bin/mistralrs-server --port 1234 plain -m Qwen/Qwen2.5-Coder-7B-Instruct";
       Restart = "on-failure";
       RestartSec = "5s";
       StateDirectory = "mistralrs";
+      LimitMEMLOCK = "infinity";
 
-      # Droits matériels GPU
       DynamicUser = true;
       PrivateDevices = false;
       SupplementaryGroups = [ "video" "render" ];
@@ -120,7 +124,7 @@ in
 
   # 1.3 Moteur GGUF/C++ Native (llama.cpp OpenAI API Server)
   systemd.services.llama-cpp-server = {
-    description = "Serveur llama.cpp OpenAI Native (Niveau 0.2/1.3)";
+    description = "Serveur llama.cpp OpenAI Native (Niveau 1.3)";
     after = [ "network.target" ];
     wantedBy = [ "multi-user.target" ];
 
@@ -138,10 +142,21 @@ in
           ${pkgs.curl}/bin/curl -L "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf" -o /var/lib/llama-cpp/modele.gguf
         fi
       '';
-      ExecStart = "${pkgs.llama-cpp-rocm}/bin/llama-server --host 127.0.0.1 --port 8085 -m /var/lib/llama-cpp/modele.gguf -ngl 99 -c 8192";
+      ExecStart = ''
+        ${pkgs.llama-cpp-rocm}/bin/llama-server \
+          --host 0.0.0.0 \
+          --port 8085 \
+          -m /var/lib/llama-cpp/modele.gguf \
+          -ngl 99 \
+          -c 8192 \
+          --cont-batching \
+          --embedding \
+          --alias qwen-1.5b
+      '';
       Restart = "on-failure";
       RestartSec = "5s";
       StateDirectory = "llama-cpp";
+      LimitMEMLOCK = "infinity";
 
       DynamicUser = true;
       PrivateDevices = false;
@@ -149,10 +164,15 @@ in
     };
   };
 
-  # 1.4 Fine-Tuning Sans-Code (Docker ROCm / Axolotl)
+  # 1.4 Virtualisation Docker (ROCm passthrough)
   virtualisation.docker = {
     enable = true;
     autoPrune.enable = true;
+    daemon.settings = {
+      default-ulimits = {
+        memlock = { name = "memlock"; soft = -1; hard = -1; };
+      };
+    };
     extraOptions = "--add-runtime rocm=/usr/bin/docker-containerd-runtime-current";
   };
 
@@ -168,16 +188,20 @@ in
     enable = true;
     settings = {
       service = {
-        host = "127.0.0.1";
+        host = "0.0.0.0";
         http_port = 6333;
         grpc_port = 6334;
+        enable_cors = true;
       };
       storage = {
         storage_path = "/var/lib/qdrant/storage";
         snapshots_path = "/var/lib/qdrant/snapshots";
+        on_disk_payload = true;
       };
       hsnw_index = {
         on_disk = true;
+        m = 16;
+        ef_construct = 100;
       };
       telemetry_disabled = true;
     };
@@ -188,22 +212,35 @@ in
     backend = "docker";
     containers = {
       # 2.3 Embeddings & Rerank (HuggingFace TEI)
-      tei-embeddings = {
-        image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.6";
-        ports = [ "8080:80" ];
-        cmd = [ "--model-id" "BAAI/bge-large-en-v1.5" ];
-        extraOptions = [ "--device=/dev/kfd" "--device=/dev/dri" ];
-      };
+    tei-embeddings = {
+      image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.6";
+      ports = [ "8080:80" ];
+      cmd = [
+        "--model-id" "BAAI/bge-large-en-v1.5"
+        "--port" "80"
+        "--max-concurrent-requests" "512"
+        "--max-batch-tokens" "16384"
+        "--auto-truncate"
+      ];
+      extraOptions = [ "--device=/dev/kfd" "--device=/dev/dri" ];
+    };
 
-      # 2.4 Mémoire Long Terme (Mem0 Server)
-      mem0-service = {
-        image = "mem0/mem0:latest";
-        ports = [ "8081:8000" ];
-        environment = {
-          QDRANT_HOST = "http://host.docker.internal:6333";
-        };
-        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+      # 2.4 Service de Mémoire Long Terme (Mem0 Server)
+    mem0-service = {
+      image = "mem0/mem0:latest";
+      ports = [ "8081:8000" ];
+      environment = {
+        VECTOR_STORE = "qdrant";
+        QDRANT_HOST = "http://host.docker.internal:6333";
+        LLM_PROVIDER = "ollama";
+        OLLAMA_BASE_URL = "http://host.docker.internal:11434";
+        OLLAMA_MODEL = "qwen2.5-coder:14b";
+        EMBEDDING_PROVIDER = "openai";
+        OPENAI_BASE_URL = "http://host.docker.internal:8080/v1";
+        OPENAI_API_KEY = "none";
       };
+      extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+    };
 
       # 3.1 Façade Utilisateur (OmniRoute) - Port 3000
       omniroute = {
@@ -211,20 +248,6 @@ in
         ports = [ "3000:3000" ];
         environment = {
           LITELLM_BASE_URL = "http://host.docker.internal:4000";
-        };
-        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
-      };
-
-      # 5.4 Observabilité LLMOps (Langfuse Server) - Port 3001
-      langfuse-server = {
-        image = "langfuse/langfuse:2";
-        ports = [ "3001:3000" ];
-        environment = {
-          DATABASE_URL = "postgresql://langfuse@host.docker.internal:5432/langfuse?sslmode=disable";
-          NEXTAUTH_URL = "http://localhost:3001";
-          NEXTAUTH_SECRET = "secret_de_dev_a_changer_en_prod_123456789";
-          SALT = "salt_de_dev_a_changer_123456789";
-          TELEMETRY_ENABLED = "false";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -254,15 +277,31 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
+      # 5.4 Observabilité LLMOps (Langfuse Server) - Port 3001
+      langfuse-server = {
+        image = "langfuse/langfuse:2";
+        ports = [ "3001:3000" ];
+        environment = {
+          DATABASE_URL = "postgresql://langfuse@host.docker.internal:5432/langfuse?sslmode=disable";
+          NEXTAUTH_URL = "http://localhost:3001";
+          NEXTAUTH_SECRET = "secret_de_dev_a_changer_en_prod_123456789";
+          SALT = "salt_de_dev_a_changer_123456789";
+          TELEMETRY_ENABLED = "false";
+          ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000000";
+        };
+        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+      };
+
       # 7.2 Workspace RAG Isolé (AnythingLLM) - Port 3002
       anythingllm = {
         image = "mintplexlabs/anythingllm:latest";
         ports = [ "3002:3001" ];
         volumes = [
-          "anythingllm_data:/app/server/storage"
+          "/var/lib/anythingllm:/app/server/storage"
         ];
         environment = {
           STORAGE_DIR = "/app/server/storage";
+          DISABLE_TELEMETRY = "true";
         };
       };
 
@@ -295,9 +334,28 @@ in
   # 3.2 Proxy Backend Backend (LiteLLM)
   services.litellm = {
     enable = true;
-    host = "127.0.0.1";
+    host = "0.0.0.0";
     port = 4000;
     settings = {
+      general_settings = {
+        master_key = "sk-litellm-local-root-key";
+        store_model_in_db = false;
+        database_url = "";
+      };
+      litellm_settings = {
+        drop_params = true;
+        set_verbose = false;
+        request_timeout = 600;
+        num_retries = 3;
+        cache = true;
+        cache_params = {
+          type = "redis";
+          host = "127.0.0.1";
+          port = 6379;
+          namespace = "litellm.cache";
+          supported_call_types = [ "completion" "embeddings" ];
+        };
+      };
       model_list = [
         # Routage vers mistral.rs (1.2)
         {
@@ -306,14 +364,16 @@ in
             model = "openai/Qwen/Qwen2.5-Coder-7B-Instruct";
             api_base = "http://127.0.0.1:1234/v1";
             api_key = "none";
+            timeout = 300;
           };
         }
         # Routage vers Ollama ROCm (1.1)
         {
           model_name = "ollama-general";
           litellm_params = {
-            model = "ollama/llama3.2";
+            model = "ollama/qwen2.5-coder:14b";
             api_base = "http://127.0.0.1:11434";
+            stream = true;
           };
         }
         # Routage vers TEI Embeddings (2.3)
@@ -332,9 +392,15 @@ in
   # NIVEAU 5 : PROTOCOLE MCP, FRAMEWORKS D'AGENTS & OBSERVABILITÉ
   # =========================================================================
 
-  # 5.4 Base de données PostgreSQL dédiée à l'observabilité LLMOps (Langfuse)
+  # 5.4 Base de données PostgreSQL dédiée à Langfuse
   services.postgresql = {
     enable = true;
+    enableTCPIP = true;
+    settings = {
+      listen_addresses = "*";
+      max_connections = 100;
+      shared_buffers = "512MB";
+    };
     ensureDatabases = [ "langfuse" ];
     ensureUsers = [
       {
@@ -344,9 +410,9 @@ in
     ];
     # Authentification locale sans mot de passe pour le conteneur
     authentication = pkgs.lib.mkOverride 10 ''
-      # type  database        user            address                 method
       local   all             all                                     trust
       host    langfuse        langfuse        172.17.0.0/16           trust
+      host    langfuse        langfuse        127.0.0.1/32            trust
     '';
   };
 

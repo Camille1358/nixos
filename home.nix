@@ -84,6 +84,14 @@ in
       unzip
       keepassxc
       obs-studio
+      antigravity
+      fastfetch
+      htop
+      nvtopPackages.amd
+      pavucontrol
+      sublime3
+      qalculate-qt
+      evince
     #----------------------------------------------Browser----------------------------------------------
       pkgs-unstable.tor-browser #dernière version possible "pkgs-unstable"
       pkgs-unstable.mullvad-browser #dernière version sur la stable "pkgs-stable-latest.mullvad-browser"
@@ -100,14 +108,8 @@ in
       goverlay
       mangohud
     #---------------------------------------------------------------------------------------------------
-      fastfetch
-      htop
-      nvtopPackages.amd
-      pavucontrol
-      sublime3
-      qalculate-qt
-      evince
-    #------------------------------------------------IA------------------------------------------------
+
+    #-------------------------------------------------IA------------------------------------------------
       appflowy
       opencode
       docker-compose
