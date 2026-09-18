@@ -25,6 +25,45 @@ let
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildInputs = [ pkgs.openssl ];
   };
+
+  # 5.3 Framework Agent Graph (PydanticAI)  
+  pydantic-ai = pkgs.python3Packages.buildPythonPackage rec {
+    pname = "pydantic_ai_slim";
+    version = "0.0.18";
+    format = "pyproject";
+    src = pkgs.python3Packages.fetchPypi {
+      pname = "pydantic_ai_slim";
+      inherit version;
+      hash = "sha256-DvbHn+GvS9le888ZvE9WbDDzwhtljjaJqPIPxzJCEtA=";
+    };
+    doCheck = false;
+    dontCheckRuntimeDeps = true; # Désactive la vérification stricte des dépendances runtime optionnelles
+    
+    nativeBuildInputs = [ pkgs.python3Packages.hatchling ];
+    propagatedBuildInputs = with pkgs.python3Packages; [
+      pydantic
+      httpx
+      griffe
+      eval-type-backport
+    ];
+  };
+
+  # 6.2 Conversion Markdown LLM (Crawl4AI)
+  crawl4ai = pkgs.python3Packages.buildPythonPackage rec {
+    pname = "crawl4ai";
+    version = "0.4.247";
+    format = "setuptools";
+    src = pkgs.python3Packages.fetchPypi {
+      inherit pname version;
+      hash = "sha256-pGTb9hsM1RK7OHBpDmgWjAPc2ZP4YzY7isDKNhRWUIA=";
+    };
+    doCheck = false;
+    propagatedBuildInputs = with pkgs.python3Packages; [
+      pydantic
+      httpx
+      beautifulsoup4
+    ];
+  };
 #-------------------------------------------------------------------------------------------------
 in
 
@@ -93,6 +132,10 @@ in
         langgraph
         # 5.1 Protocole MCP Python
         mcp
+        # issue du bloc let-in
+        spider-cli
+        pydantic-ai
+        #crawl4ai
       ]))
       #-------------------------------------------
       # 6.5 Agent de Codage Terminal (déjà ajouté précédemment)
