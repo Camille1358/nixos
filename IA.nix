@@ -15,9 +15,6 @@ in
     port = 6379;
   };
 
-  # 7.4 Orchestrateur Système
-  services.n8n.enable = true;
-
   # =========================================================================
   # NIVEAU 0 : ACCÉLÉRATION MATÉRIELLE & RUNTIME BAS NIVEAU (AMD ROCm)
   # =========================================================================
@@ -286,6 +283,62 @@ in
         SMART_LLM_MODEL = "openai/qwen2.5-coder";
       };
       extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+    };
+  };
+
+  # =========================================================================
+  # NIVEAU 7 : WORKFLOWS AUTOMATISÉS, ESPACES DE TRAVAIL & INTERFACES UTILISATEUR
+  # =========================================================================
+
+  # 7.1 Interface Chat & RAG - Open WebUI (Service Natif NixOS)
+  services.open-webui = {
+    enable = true;
+    port = 8082;
+    environment = {
+      OLLAMA_BASE_URL = "http://127.0.0.1:11434";
+    };
+  };
+
+  # 7.4 Orchestrateur Système - n8n (Service Natif NixOS)
+  services.n8n = {
+    enable = true;
+    environment = {
+      N8N_PORT = "5678";
+    };
+  };
+
+  # 7.2 & 7.3 Conteneurs OCI pour AnythingLLM et Dify
+  virtualisation.oci-containers.containers = {
+    # 7.2 Workspace RAG Isolé (AnythingLLM)
+    anythingllm = {
+      image = "mintplexlabs/anythingllm:latest";
+      ports = [ "3002:3001" ];
+      volumes = [
+        "anythingllm_data:/app/server/storage"
+      ];
+      environment = {
+        STORAGE_DIR = "/app/server/storage";
+      };
+    };
+
+    # 7.3 Studio Visuel d'Agents - Interface Web (Dify)
+    dify-web = {
+      image = "langgenius/dify-web:latest";
+      ports = [ "3003:3000" ];
+      environment = {
+        CONSOLE_API_URL = "http://localhost:5001";
+        APP_API_URL = "http://localhost:5001";
+      };
+    };
+
+    # 7.3 Studio Visuel d'Agents - Moteur API (Dify)
+    dify-api = {
+      image = "langgenius/dify-api:latest";
+      ports = [ "5001:5001" ];
+      environment = {
+        MODE = "api";
+        LOG_LEVEL = "INFO";
+      };
     };
   };
 }
