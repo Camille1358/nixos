@@ -216,7 +216,7 @@ in
       host    langfuse        langfuse        172.17.0.0/16           trust
     '';
   };
-  
+
   # 5.4 Conteneur OCI Langfuse (Port 3001)
   # À fusionner à l'intérieur de ton bloc `virtualisation.oci-containers.containers`
   virtualisation.oci-containers.containers = {
@@ -229,6 +229,61 @@ in
         NEXTAUTH_SECRET = "secret_de_dev_a_changer_en_prod_123456789";
         SALT = "salt_de_dev_a_changer_123456789";
         TELEMETRY_ENABLED = "false";
+      };
+      extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+    };
+  };
+
+  # =========================================================================
+  # NIVEAU 6 : INGESTION WEB HAUTE VITESSE, SEARCH IA & AGENTS CLI
+  # =========================================================================
+
+  # 6.3 Recherche Sémantique - Moteur SearXNG (Service Natif NixOS)
+  services.searx = {
+    enable = true;
+    package = pkgs.searxng;
+    settings = {
+      server = {
+        port = 8888;
+        bind_address = "0.0.0.0";
+        secret_key = "searxng_secret_key_a_changer_en_prod";
+      };
+      search = {
+        safe_search = 0;
+        autocomplete = "google";
+        formats = [ "html" "json" ];
+      };
+      engines = [
+        { name = "bing"; engine = "bing"; shortcut = "b"; }
+        { name = "duckduckgo"; engine = "duckduckgo"; shortcut = "ddg"; }
+        { name = "google"; engine = "google"; shortcut = "g"; }
+      ];
+    };
+  };
+
+  # 6.3 & 6.4 Conteneurs OCI pour Perplexica et GPT Researcher
+  virtualisation.oci-containers.containers = {
+    # 6.3 Perplexica (Interface & API de recherche IA)
+    perplexica-app = {
+      image = "itshasbulla/perplexica:latest";
+      ports = [ "3000:3000" ];
+      environment = {
+        SEARXNG_API_URL = "http://host.docker.internal:8888";
+        OLLAMA_API_URL = "http://host.docker.internal:11434";
+      };
+      extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+    };
+
+    # 6.4 GPT Researcher (Agent autonome de recherche approfondie)
+    gpt-researcher = {
+      image = "gptresearcher/gpt-researcher:latest";
+      ports = [ "8000:8000" ];
+      environment = {
+        SEARXNG_BASE_URL = "http://host.docker.internal:8888";
+        OPENAI_BASE_URL = "http://host.docker.internal:11434/v1";
+        OPENAI_API_KEY = "ollama";
+        FAST_LLM_MODEL = "openai/qwen2.5-coder";
+        SMART_LLM_MODEL = "openai/qwen2.5-coder";
       };
       extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
     };

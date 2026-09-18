@@ -9,6 +9,23 @@ let
     config.allowUnfree = true;
   };
 
+#-----------------------------------------------IA------------------------------------------------
+  # 6.1 Dérivation personnalisée Nix pour Spider CLI depuis Crates.io
+  spider-cli = pkgs.rustPlatform.buildRustPackage rec {
+    pname = "spider_cli";
+    version = "2.2.0";
+
+    src = pkgs.fetchCrate {
+      inherit pname version;
+      hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Temporaire pour obtenir le vrai hash
+    };
+
+    cargoHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+    nativeBuildInputs = [ pkgs.pkg-config ];
+    buildInputs = [ pkgs.openssl ];
+  };
+#-------------------------------------------------------------------------------------------------
 in
 
 
@@ -64,6 +81,7 @@ in
       cargo
       rustc
       uv # Executera instantanément Guardrails AI, MCP et RuFlo via virtualenv légers
+
       #-------------------------------------------
       (python3.withPackages (ps: with ps; [
         lancedb
@@ -76,6 +94,9 @@ in
         # 5.1 Protocole MCP Python
         mcp
       ]))
+      #-------------------------------------------
+      # 6.5 Agent de Codage Terminal (déjà ajouté précédemment)
+      opencode
     #--------------------------------------------------------------------------------------------------
 
     # Discord PTB + Vencord
