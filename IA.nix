@@ -194,4 +194,43 @@ in
       ];
     };
   };
+
+  # =========================================================================
+  # NIVEAU 5 : PROTOCOLE MCP, FRAMEWORKS D'AGENTS & OBSERVABILITÉ
+  # =========================================================================
+
+  # 5.4 Base de données PostgreSQL dédiée à l'observabilité LLMOps (Langfuse)
+  services.postgresql = {
+    enable = true;
+    ensureDatabases = [ "langfuse" ];
+    ensureUsers = [
+      {
+        name = "langfuse";
+        ensureDBOwnership = true;
+      }
+    ];
+    # Authentification locale sans mot de passe pour le conteneur
+    authentication = pkgs.lib.mkOverride 10 ''
+      # type  database        user            address                 method
+      local   all             all                                     trust
+      host    langfuse        langfuse        172.17.0.0/16           trust
+    '';
+  };
+
+  # 5.4 Conteneur OCI Langfuse (Port 3001)
+  # À fusionner à l'intérieur de ton bloc `virtualisation.oci-containers.containers`
+  virtualisation.oci-containers.containers = {
+    langfuse-server = {
+      image = "langfuse/langfuse:2";
+      ports = [ "3001:3000" ];
+      environment = {
+        DATABASE_URL = "postgresql://langfuse@172.17.0.1:5432/langfuse?sslmode=disable";
+        NEXTAUTH_URL = "http://localhost:3001";
+        NEXTAUTH_SECRET = "secret_de_dev_a_changer_en_prod_123456789";
+        SALT = "salt_de_dev_a_changer_123456789";
+        TELEMETRY_ENABLED = "false";
+      };
+      extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+    };
+  };
 }

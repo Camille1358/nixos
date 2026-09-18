@@ -59,9 +59,22 @@ in
       mistral-rs
       clinfo
       rocmPackages.rocminfo
+      # 4.1, 4.2 & 4.3
+      nodejs
+      cargo
+      rustc
+      uv # Executera instantanément Guardrails AI, MCP et RuFlo via virtualenv légers
+      #-------------------------------------------
       (python3.withPackages (ps: with ps; [
         lancedb
         pyarrow
+        # 4.1 Validation & Sorties Structurées
+        pydantic
+        pydantic-core
+        # 5.3 Frameworks Agents Python
+        langgraph
+        # 5.1 Protocole MCP Python
+        mcp
       ]))
     #--------------------------------------------------------------------------------------------------
 
