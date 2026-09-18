@@ -216,7 +216,7 @@ in
       host    langfuse        langfuse        172.17.0.0/16           trust
     '';
   };
-
+  
   # 5.4 Conteneur OCI Langfuse (Port 3001)
   # À fusionner à l'intérieur de ton bloc `virtualisation.oci-containers.containers`
   virtualisation.oci-containers.containers = {
