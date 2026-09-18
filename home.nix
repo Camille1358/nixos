@@ -9,14 +9,9 @@ let
     config.allowUnfree = true;
   };
 
-  handySrc = builtins.fetchTarball {
-    url = "https://github.com/cjpais/handy/archive/main.tar.gz";
-  };
-  flakeCompat = builtins.fetchTarball {
-    url = "https://github.com/edolstra/flake-compat/archive/master.tar.gz";
-  };
-  handy = (import flakeCompat { src = handySrc; }).defaultNix.packages.${pkgs.system}.default;
 in
+
+
 
 {
   nix.extraOptions = ''
@@ -41,6 +36,7 @@ in
       goverlay
       pkgs-unstable.tor-browser #dernière version possible "pkgs-unstable"
       pkgs-unstable.mullvad-browser #dernière version sur la stable "pkgs-stable-latest.mullvad-browser"
+      pkgs-unstable.brave
       vesktop
       lact
       gamescope
@@ -50,7 +46,7 @@ in
       pavucontrol
       sublime3
       qalculate-qt
-      handy
+      evince
 
     # Discord PTB + Vencord
       (discord-ptb.override {

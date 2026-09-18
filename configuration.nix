@@ -118,6 +118,8 @@ in
   # Ferme immédiatement le processus fautif en cas d'épuisement de la RAM pour éviter le gel complet du système.
   systemd.oomd.enable = true;
 
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
   # Gestion de la mémoire et réactivité système
   zramSwap.enable = true;
 
