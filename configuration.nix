@@ -17,6 +17,7 @@ in
       ./nixos_instable.nix
       ./packages.nix
       ./startup.nix
+      ./IA.nix
       <home-manager/nixos>
     ];
 

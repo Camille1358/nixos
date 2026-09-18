@@ -21,25 +21,29 @@ in
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
     packages = with pkgs; [ # Paquets installés uniquement pour la session utilisateur
+    #-----------------------------------------------APPs------------------------------------------------
       vlc
       vscode
-      easyeffects
       spotify
       unzip
-      lutris-free
-      heroic
-      protonup-qt
       keepassxc
       obs-studio
-      google-chrome
-      mangohud
-      goverlay
+    #----------------------------------------------Browser----------------------------------------------
       pkgs-unstable.tor-browser #dernière version possible "pkgs-unstable"
       pkgs-unstable.mullvad-browser #dernière version sur la stable "pkgs-stable-latest.mullvad-browser"
       pkgs-unstable.brave
+      google-chrome
+    #-----------------------------------------------Games-----------------------------------------------
       vesktop
+      easyeffects
+      lutris-free
+      heroic
+      protonup-qt
       lact
       gamescope
+      goverlay
+      mangohud
+    #---------------------------------------------------------------------------------------------------
       fastfetch
       htop
       nvtopPackages.amd
@@ -47,6 +51,15 @@ in
       sublime3
       qalculate-qt
       evince
+    #------------------------------------------------IA------------------------------------------------
+      appflowy
+      opencode
+      docker-compose
+      llama-cpp-rocm
+      mistral-rs
+      clinfo
+      rocmPackages.rocminfo
+    #--------------------------------------------------------------------------------------------------
 
     # Discord PTB + Vencord
       (discord-ptb.override {
