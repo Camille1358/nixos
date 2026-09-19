@@ -88,6 +88,9 @@ in
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
     sessionVariables = {
+
+      RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
+
       # ----------------------------------------------------------------------
       # MAILLAGE GLOBAL : ROUTAGE, MÉMOIRE ET TÉLÉMÉTRIE
       # ----------------------------------------------------------------------
@@ -163,6 +166,8 @@ in
       nodejs
       cargo
       rustc
+      rust-analyzer
+      gcc
       uv # Executera instantanément Guardrails AI, MCP et RuFlo via virtualenv légers
       
 
