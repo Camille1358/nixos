@@ -262,7 +262,7 @@ in
     backend = "docker";
     containers = {
 
-    # 1.4 Fine-Tuning Sans-Code (Axolotl ROCm - Interconnecté à N0 GPU)
+      # 1.4 Fine-Tuning Sans-Code (Axolotl ROCm - Interconnecté à N0 GPU)
       axolotl = {
         image = "winglian/axolotl:main-rocm6.0-py3.10";
         volumes = [
@@ -285,7 +285,7 @@ in
         ];
       };
 
-    # 2.3 Embeddings & Rerank (HuggingFace TEI - Interconnecté à N0 GPU)
+      # 2.3 Embeddings & Rerank (HuggingFace TEI - Interconnecté à N0 GPU)
       tei-embeddings = {
         image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.6";
         ports = [ "${toString cfg.ports.tei}:80" ];
@@ -306,7 +306,7 @@ in
         ];
       };
 
-    # 2.4 Service de Mémoire Long Terme (Mem0 - Interconnecté à N1, N2.1, N2.3)
+      # 2.4 Service de Mémoire Long Terme (Mem0 - Interconnecté à N1, N2.1, N2.3)
       mem0-service = {
         image = "mem0/mem0:latest";
         ports = [ "${toString cfg.ports.mem0}:8000" ];
@@ -328,7 +328,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-    # 3.1 Façade Utilisateur (OmniRoute)
+      # 3.1 Façade Utilisateur (OmniRoute)
       omniroute = {
         image = "omniroute/omniroute:latest";
         ports = [ "3000:3000" ];
@@ -342,7 +342,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-    # 4.2 Filtrage & Sécurité (Guardrails AI Service)
+      # 4.2 Filtrage & Sécurité (Guardrails AI Service)
       guardrails-api = {
         image = "guardrails/guardrails:latest";
         ports = [ "8005:8000" ];
@@ -354,7 +354,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-    # 6.3 Perplexica (Search IA) - Interconnecté à SearXNG (N6.3), LiteLLM (N3.2) & TEI (N2.3)
+      # 6.3 Perplexica (Search IA) - Interconnecté à SearXNG (N6.3), LiteLLM (N3.2) & TEI (N2.3)
       perplexica-app = {
         image = "itshasbulla/perplexica:latest";
         ports = [ "3005:3000" ];
@@ -367,7 +367,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-    # 6.4 GPT Researcher
+      # 6.4 GPT Researcher
       gpt-researcher = {
         image = "gptresearcher/gpt-researcher:latest";
         ports = [ "8000:8000" ];
@@ -383,7 +383,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-    # 5.4 Observabilité LLMOps (Langfuse Server) - Port 3001
+      # 5.4 Observabilité LLMOps (Langfuse Server) - Port 3001
       langfuse-server = {
         image = "langfuse/langfuse:2";
         ports = [ "3001:3000" ];
@@ -404,7 +404,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-    # 7.2 Workspace RAG Isolé (AnythingLLM) - Port 3002
+      # 7.2 Workspace RAG Isolé (AnythingLLM) - Interconnecté à LiteLLM (N3.2), TEI (N2.3) & Qdrant (N2.1)
       anythingllm = {
         image = "mintplexlabs/anythingllm:latest";
         ports = [ "3002:3001" ];
@@ -414,10 +414,26 @@ in
         environment = {
           STORAGE_DIR = "/app/server/storage";
           DISABLE_TELEMETRY = "true";
+
+          # Inférence via LiteLLM (N3.2)
+          LLM_PROVIDER = "openai";
+          OPEN_AI_KEY = "sk-litellm-local-root-key";
+          OPEN_AI_MODEL_PREF = "qwen-coder-fast";
+          OPENAI_BASE_PATH = "http://host.docker.internal:4000/v1";
+
+          # Embeddings via TEI (N2.3)
+          EMBEDDING_ENGINE = "openai";
+          EMBEDDING_BASE_PATH = "http://host.docker.internal:8080/v1";
+          EMBEDDING_MODEL_PREF = "BAAI/bge-large-en-v1.5";
+
+          # Vector DB via Qdrant (N2.1)
+          VECTOR_DB = "qdrant";
+          QDRANT_ENDPOINT = "http://host.docker.internal:6333";
         };
+        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-    # 7.3 Studio Visuel d'Agents (Dify Web) - Port 3003
+      # 7.3 Studio Visuel d'Agents (Dify Web) - Port 3003
       dify-web = {
         image = "langgenius/dify-web:latest";
         ports = [ "3003:3000" ];
@@ -425,16 +441,34 @@ in
           CONSOLE_API_URL = "http://localhost:5001";
           APP_API_URL = "http://localhost:5001";
         };
+        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-    # 7.3 Studio Visuel d'Agents (Dify API) - Port 5001
+      # 7.3 Studio Visuel d'Agents (Dify API) - Interconnecté à PostgreSQL (N5.4), Redis (N3.3) & Qdrant (N2.1)
       dify-api = {
         image = "langgenius/dify-api:latest";
         ports = [ "5001:5001" ];
         environment = {
           MODE = "api";
           LOG_LEVEL = "INFO";
+          SECRET_KEY = "dify_secret_key_a_changer_en_prod";
+
+          # Base de données PostgreSQL (N5.4)
+          DB_HOST = "host.docker.internal";
+          DB_PORT = "5432";
+          DB_USER = "langfuse";
+          DB_PASSWORD = "";
+          DB_DATABASE = "langfuse";
+
+          # Cache Redis (N3.3)
+          REDIS_HOST = "host.docker.internal";
+          REDIS_PORT = "6379";
+
+          # Vector DB Qdrant (N2.1)
+          VECTOR_STORE = "qdrant";
+          QDRANT_URL = "http://host.docker.internal:6333";
         };
+        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
     };
   };
