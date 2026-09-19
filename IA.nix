@@ -18,6 +18,7 @@ let
       qdrantGrpc= 6334;
       tei       = 8080;
       mem0      = 8081;
+      n8n       = 5678;
     };
 
     # Endpoints vus depuis l'hôte NixOS
@@ -109,6 +110,7 @@ in
     "d /var/lib/llama-cpp 0770 root root - -"
     "d /var/lib/mistralrs 0770 root root - -"
     "d /var/lib/qdrant 0750 qdrant qdrant - -"
+    "d /var/lib/tei-embeddings 0775 root root - -"
     # 1.4 Stockage Axolotl
     "d /var/lib/axolotl 0775 root root - -"
     "d /var/lib/axolotl/configs 0775 root root - -"
@@ -279,18 +281,22 @@ in
         };
         extraOptions = [
           "--device=/dev/kfd"
-          "--device=/dev/dri"
+          "--device=/dev/dri/renderD128"
+          "--device=/dev/dri/card0"
           "--ipc=host"
           "--shm-size=16g"
         ];
       };
 
-      # 2.3 Embeddings & Rerank (HuggingFace TEI - Interconnecté à N0 GPU)
+      # 2.3 Embeddings & Rerank (HuggingFace TEI)
       tei-embeddings = {
         image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.6";
         ports = [ "${toString cfg.ports.tei}:80" ];
+        volumes = [
+          "/var/lib/tei-embeddings:/data"
+        ];
         environment = {
-          HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx; # <--- À AJOUTER
+          HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
         };
         cmd = [
           "--model-id" "BAAI/bge-large-en-v1.5"
@@ -299,28 +305,29 @@ in
           "--max-batch-tokens" "16384"
           "--auto-truncate"
         ];
-        # Transmission directe des périphériques ROCm/KFD
         extraOptions = [
           "--device=/dev/kfd"
-          "--device=/dev/dri"
+          "--device=/dev/dri/renderD128"
+          "--device=/dev/dri/card0"
         ];
       };
 
-      # 2.4 Service de Mémoire Long Terme (Mem0 - Interconnecté à N1, N2.1, N2.3)
+      # 2.4 Service de Mémoire Long Terme (Mem0)
       mem0-service = {
         image = "mem0/mem0:latest";
         ports = [ "${toString cfg.ports.mem0}:8000" ];
         environment = {
-          # Connexion à Qdrant (N2.1)
+          # Liaison N2.1 (Qdrant)
           VECTOR_STORE = "qdrant";
-          QDRANT_HOST = cfg.dockerEndpoints.qdrant;
+          QDRANT_HOST = "host.docker.internal";
+          QDRANT_PORT = toString cfg.ports.qdrantHttp;
 
-          # Connexion à Ollama (N1.1) pour l'extraction mémoire
+          # Liaison N1.1 (Ollama ROCm)
           LLM_PROVIDER = "ollama";
           OLLAMA_BASE_URL = cfg.dockerEndpoints.ollama;
           OLLAMA_MODEL = "qwen2.5-coder:14b";
 
-          # Connexion à TEI (N2.3) pour le vector embedding
+          # Liaison N2.3 (TEI Embeddings)
           EMBEDDING_PROVIDER = "openai";
           OPENAI_BASE_URL = cfg.dockerEndpoints.tei;
           OPENAI_API_KEY = "none";
@@ -354,6 +361,22 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
+      # 5.4 Observabilité & Tracing (Langfuse)
+      langfuse-server = {
+        image = "langfuse/langfuse:2";
+        ports = [ "3001:3000" ];
+        environment = {
+          NODE_ENV = "production";
+          DATABASE_URL = "postgresql://langfuse@host.docker.internal:5432/langfuse";
+          REDIS_HOST = "host.docker.internal";
+          REDIS_PORT = "6379";
+          NEXTAUTH_URL = "http://localhost:3001";
+          NEXTAUTH_SECRET = "secret-langfuse-local";
+          SALT = "salt-langfuse-local";
+        };
+        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+      };
+
       # 6.3 Perplexica (Search IA) - Interconnecté à SearXNG (N6.3), LiteLLM (N3.2) & TEI (N2.3)
       perplexica-app = {
         image = "itshasbulla/perplexica:latest";
@@ -379,27 +402,6 @@ in
           SMART_LLM_MODEL = "openai/ollama-general";
           EMBEDDING_PROVIDER = "custom";
           CUSTOM_EMBEDDING_ENDPOINT = "http://host.docker.internal:8080/v1";
-        };
-        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
-      };
-
-      # 5.4 Observabilité LLMOps (Langfuse Server) - Port 3001
-      langfuse-server = {
-        image = "langfuse/langfuse:2";
-        ports = [ "3001:3000" ];
-        environment = {
-          DATABASE_URL = "postgresql://langfuse@host.docker.internal:5432/langfuse?sslmode=disable";
-          NEXTAUTH_URL = "http://localhost:3001";
-          NEXTAUTH_SECRET = "secret_de_dev_a_changer_en_prod_123456789";
-          SALT = "salt_de_dev_a_changer_123456789";
-          TELEMETRY_ENABLED = "false";
-          ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000000";
-          
-          # Initialisation automatique des clés pour le maillage des SDK (N5.3, N6.5)
-          LANGFUSE_INIT_ORG_ID = "default";
-          LANGFUSE_INIT_PROJECT_ID = "main";
-          LANGFUSE_INIT_PROJECT_PUBLIC_KEY = "pk-lf-local-key";
-          LANGFUSE_INIT_PROJECT_SECRET_KEY = "sk-lf-local-key";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -444,29 +446,29 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 7.3 Studio Visuel d'Agents (Dify API) - Interconnecté à PostgreSQL (N5.4), Redis (N3.3) & Qdrant (N2.1)
+      # 7.3 Plateforme de workflows d'agents (Dify API)
       dify-api = {
         image = "langgenius/dify-api:latest";
         ports = [ "5001:5001" ];
         environment = {
-          MODE = "api";
-          LOG_LEVEL = "INFO";
-          SECRET_KEY = "dify_secret_key_a_changer_en_prod";
-
-          # Base de données PostgreSQL (N5.4)
+          # Liaison N5.4 (PostgreSQL base 'dify')
+          DB_USERNAME = "dify";
+          DB_PASSWORD = "";
+          DB_DATABASE = "dify";
           DB_HOST = "host.docker.internal";
           DB_PORT = "5432";
-          DB_USER = "langfuse";
-          DB_PASSWORD = "";
-          DB_DATABASE = "langfuse";
 
-          # Cache Redis (N3.3)
+          # Liaison N3.3 (Redis)
           REDIS_HOST = "host.docker.internal";
           REDIS_PORT = "6379";
 
-          # Vector DB Qdrant (N2.1)
+          # Liaison N2.1 (Qdrant Vector Store)
           VECTOR_STORE = "qdrant";
           QDRANT_URL = "http://host.docker.internal:6333";
+
+          # Liaison N3.2 (LiteLLM Gateway)
+          OPENAI_API_BASE = "http://host.docker.internal:4000/v1";
+          OPENAI_API_KEY = "sk-litellm-local-root-key";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -477,11 +479,19 @@ in
   # NIVEAU 3 : ROUTAGE HYBRIDE, PASSERELLE DOUBLE-COUCHE & CASCHING SÉMANTIQUE
   # =========================================================================
 
-  # 3.2 Proxy Backend (LiteLLM) - Centralisation & Routage
+  # 3.2 Proxy Backend (LiteLLM)
   services.litellm = {
     enable = true;
     host = "0.0.0.0";
     port = 4000;
+    
+    # Injection des clés systemd pour la liaison N3.2 ➔ N5.4 (Langfuse)
+    environment = {
+      LANGFUSE_HOST = "http://127.0.0.1:3001";
+      LANGFUSE_PUBLIC_KEY = "pk-lf-local-key";
+      LANGFUSE_SECRET_KEY = "sk-lf-local-key";
+    };
+
     settings = {
       general_settings = {
         master_key = "sk-litellm-local-root-key";
@@ -494,11 +504,10 @@ in
         request_timeout = 600;
         num_retries = 3;
         
-        # Interconnection N3.2 ➔ N5.4 (Observabilité Langfuse)
         success_callbacks = [ "langfuse" ];
         failure_callbacks = [ "langfuse" ];
         
-        # Interconnection N3.2 ➔ N3.3 (Cache Sémantique Redis)
+        # Liaison N3.2 ➔ N3.3 (Cache Sémantique Redis)
         cache = true;
         cache_params = {
           type = "redis";
@@ -511,7 +520,6 @@ in
       
       # Table de routage unifiée (N1.1, N1.2, N1.3, N2.3)
       model_list = [
-        # N1.2 mistral.rs (Inférence ultra-rapide)
         {
           model_name = "qwen-coder-fast";
           litellm_params = {
@@ -520,7 +528,6 @@ in
             api_key = "none";
           };
         }
-        # N1.1 Ollama ROCm (Modèle général & raisonnement)
         {
           model_name = "ollama-general";
           litellm_params = {
@@ -529,7 +536,6 @@ in
             stream = true;
           };
         }
-        # N1.3 llama.cpp (GGUF / Grammaires GBNF N4.1)
         {
           model_name = "qwen-gguf";
           litellm_params = {
@@ -538,7 +544,6 @@ in
             api_key = "none";
           };
         }
-        # N2.3 TEI (Embeddings locaux)
         {
           model_name = "bge-embeddings";
           litellm_params = {
@@ -555,7 +560,7 @@ in
   # NIVEAU 5 : PROTOCOLE MCP, FRAMEWORKS D'AGENTS & OBSERVABILITÉ
   # =========================================================================
 
-  # 5.4 Base de données PostgreSQL dédiée à Langfuse
+  # 5.4 Base de données relationnelle partagée
   services.postgresql = {
     enable = true;
     enableTCPIP = true;
@@ -564,18 +569,15 @@ in
       max_connections = 100;
       shared_buffers = "512MB";
     };
-    ensureDatabases = [ "langfuse" ];
+    ensureDatabases = [ "langfuse" "dify" ];
     ensureUsers = [
-      {
-        name = "langfuse";
-        ensureDBOwnership = true;
-      }
+      { name = "langfuse"; ensureDBOwnership = true; }
+      { name = "dify"; ensureDBOwnership = true; }
     ];
-    # Authentification locale sans mot de passe pour le conteneur
     authentication = pkgs.lib.mkOverride 10 ''
       local   all             all                                     trust
-      host    langfuse        langfuse        172.17.0.0/16           trust
-      host    langfuse        langfuse        127.0.0.1/32            trust
+      host    all             all             172.17.0.0/16           trust
+      host    all             all             127.0.0.1/32            trust
     '';
   };
 
@@ -583,26 +585,20 @@ in
   # NIVEAU 6 : INGESTION WEB HAUTE VITESSE, SEARCH IA & AGENTS CLI
   # =========================================================================
 
-  # 6.3 Recherche Sémantique - Moteur SearXNG (Service Natif NixOS)
+  # 6.3 Moteur de recherche Méta (SearXNG)
   services.searx = {
     enable = true;
-    package = pkgs.searxng;
     settings = {
       server = {
         port = 8888;
         bind_address = "0.0.0.0";
-        secret_key = "searxng_secret_key_a_changer_en_prod";
+        secret_key = "searxng-secret-key-local";
       };
       search = {
         safe_search = 0;
-        autocomplete = "google";
-        formats = [ "html" "json" ];
+        autocomplete = "duckduckgo";
+        formats = [ "html" "json" ]; # Obligatoire pour la consommation RAG / Agents
       };
-      engines = [
-        { name = "bing"; engine = "bing"; shortcut = "b"; }
-        { name = "duckduckgo"; engine = "duckduckgo"; shortcut = "ddg"; }
-        { name = "google"; engine = "google"; shortcut = "g"; }
-      ];
     };
   };
 
@@ -610,20 +606,40 @@ in
   # NIVEAU 7 : WORKFLOWS AUTOMATISÉS, ESPACES DE TRAVAIL & INTERFACES UTILISATEUR
   # =========================================================================
 
-  # 7.1 Interface Chat & RAG - Open WebUI (Service Natif NixOS)
+  # 7.1 Interface Utilisateur Principale
   services.open-webui = {
     enable = true;
     port = 8082;
     environment = {
-      OLLAMA_BASE_URL = "http://127.0.0.1:11434";
+      # Liaison N1.1 (Ollama direct pour fallback)
+      OLLAMA_BASE_URL = cfg.endpoints.ollama;
+
+      # Liaison N3.2 (LiteLLM Proxy pour tous les modèles & TEI)
+      OPENAI_API_BASE_URL = "http://127.0.0.1:4000/v1";
+      OPENAI_API_KEY = "sk-litellm-local-root-key";
+
+      # Liaison N6.3 (SearXNG Web Search RAG)
+      ENABLE_RAG_WEB_SEARCH = "true";
+      RAG_WEB_SEARCH_ENGINE = "searxng";
+      RAG_WEB_SEARCH_SEARXNG_QUERY_URL = "http://127.0.0.1:8888/search?q=<query>";
     };
   };
 
-  # 7.4 Orchestrateur Système - n8n (Service Natif NixOS)
+  # 7.4 Workflows d'automatisation (n8n)
   services.n8n = {
     enable = true;
     environment = {
-      N8N_PORT = "5678";
+      N8N_PORT = toString cfg.ports.n8n;
+
+      # Liaison N3.2 (LiteLLM)
+      OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
+      OPENAI_API_KEY = "sk-litellm-local-root-key";
+
+      # Liaison N6.3 (SearXNG)
+      SEARXNG_URL = "http://127.0.0.1:8888";
+
+      # Liaison N2.1 (Qdrant)
+      QDRANT_URL = "http://127.0.0.1:6333";
     };
   };
 
@@ -633,15 +649,24 @@ in
 
   # S'assure que Mem0 démarre uniquement lorsque Qdrant, Ollama et TEI sont fonctionnels
   systemd.services."docker-mem0-service" = {
-    after = [
-      "qdrant.service"
-      "ollama.service"
-      "docker-tei-embeddings.service"
+    after = [ "qdrant.service" "ollama.service" "docker-tei-embeddings.service" ];
+    wants = [ "qdrant.service" "ollama.service" "docker-tei-embeddings.service" ];
+  };
+
+  systemd.services."litellm" = {
+    after = [ 
+      "redis-llm-cache.service" 
+      "ollama.service" 
+      "mistralrs.service" 
+      "llama-cpp-server.service" 
+      "docker-tei-embeddings.service" 
     ];
-    wants = [
-      "qdrant.service"
-      "ollama.service"
-      "docker-tei-embeddings.service"
+    wants = [ 
+      "redis-llm-cache.service" 
+      "ollama.service" 
+      "mistralrs.service" 
+      "llama-cpp-server.service" 
+      "docker-tei-embeddings.service" 
     ];
   };
 
@@ -662,8 +687,32 @@ in
     wants = [ "searx.service" "litellm.service" "docker-tei-embeddings.service" ];
   };
 
+  systemd.services."docker-guardrails-api" = {
+    after = [ "litellm.service" ];
+    wants = [ "litellm.service" ];
+  };
+
+  # Garantie que la DB dédiée et LiteLLM sont prêts avant Dify
+  systemd.services."docker-dify-api" = {
+    after = [ "postgresql.service" "redis-llm-cache.service" "qdrant.service" "litellm.service" ];
+    wants = [ "postgresql.service" "redis-llm-cache.service" "qdrant.service" "litellm.service" ];
+  };
+
+  # Garantie que LiteLLM et SearXNG sont prêts avant Open WebUI
+  systemd.services."open-webui" = {
+    after = [ "ollama.service" "litellm.service" "searx.service" ];
+    wants = [ "ollama.service" "litellm.service" "searx.service" ];
+  };
+
+  # Garantie de préparation des dépendances pour n8n
+  systemd.services."n8n" = {
+    after = [ "litellm.service" "searx.service" "qdrant.service" ];
+    wants = [ "litellm.service" "searx.service" "qdrant.service" ];
+  };
+
+  # Langfuse attend Postgres et Redis
   systemd.services."docker-langfuse-server" = {
-    after = [ "postgresql.service" ];
-    wants = [ "postgresql.service" ];
+    after = [ "postgresql.service" "redis-llm-cache.service" ];
+    wants = [ "postgresql.service" "redis-llm-cache.service" ];
   };
 }

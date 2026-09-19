@@ -92,6 +92,14 @@ in
       OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
       GUARDRAILS_API_BASE = "http://127.0.0.1:8005/v1";
+      
+      # Redirection de la validation Guardrails vers la passerelle unifiée N3.2
+      GUARDRAILS_BASE_URL = "http://127.0.0.1:4000/v1";
+      GUARDRAILS_API_KEY = "sk-litellm-local-root-key";
+
+      # Interconnexion de RuFlo à LiteLLM (N3.2) et Langfuse (N5.4)
+      RUFLO_LLM_ENDPOINT = "http://127.0.0.1:4000/v1";
+      RUFLO_TELEMETRY_HOST = "http://127.0.0.1:3001";
 
       # Observabilité LLMOps Névralgique (N5.4 Langfuse)
       LANGFUSE_HOST = "http://127.0.0.1:3001";
@@ -251,7 +259,7 @@ in
     };
   };
 
-  # 5.1 Protocole MCP - Serveur Spider délégué au runtime dynamique
+  # 5.1 Protocole MCP - Connexions directes aux services de la stack
   home.file.".config/opencode/mcp_servers.json".text = builtins.toJSON {
     mcpServers = {
       searxng = {
