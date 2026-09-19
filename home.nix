@@ -23,10 +23,10 @@ let
       owner = "spider-rs";
       repo = "spider";
       rev = "v${version}";
-      hash = pkgs.lib.fakeHash; # Calcul automatique au premier build
+      hash = "sha256-b4JLe0STxPR1Y0y0lpGm3sH9ehXDHhxl36cq/5Lw0NQ=";
     };
 
-    cargoHash = pkgs.lib.fakeHash; # Calcul automatique au premier build
+    cargoHash = pkgs.lib.fakeHash; # Sera réclamé au prochain build
     buildAndCheckSubdir = "spider_cli";
 
     nativeBuildInputs = [ pkgs.pkg-config ];
@@ -114,8 +114,8 @@ in
       # ----------------------------------------------------------------------
       # NIVEAU 4.3 : HARNAIS RUFLO (Connecté au maillage)
       # ----------------------------------------------------------------------
-      RUFLO_LLM_ENDPOINT = "http://127.0.0.1:3000/v1"; # Pointe sur N3.1
-      RUFLO_TELEMETRY_HOST = "http://127.0.0.1:3001";  # Pointe sur N5.4
+      RUFLO_LLM_ENDPOINT = "http://127.0.0.1:3000/v1";
+      RUFLO_TELEMETRY_HOST = "http://127.0.0.1:3001";
       RUFLO_WORKTREE_ROOT = "/var/lib/ruflo/worktrees";
       RUFLO_DEFAULT_MODEL = "qwen-coder-fast";
     };
@@ -158,11 +158,13 @@ in
       mistral-rs
       clinfo
       rocmPackages.rocminfo
+      rocmPackages.rocm-smi
       # 4.1, 4.2 & 4.3
       nodejs
       cargo
       rustc
       uv # Executera instantanément Guardrails AI, MCP et RuFlo via virtualenv légers
+      
 
       (pkgs.symlinkJoin {
         name = "appflowy-wrapped";
@@ -269,7 +271,7 @@ in
     mcpServers = {
       searxng = {
         command = "${pkgs.uv}/bin/uvx";
-        args = [ "mcp-server-searxng" "--searxng-url" "http://127.0.0.1:8888" ];
+        args = [ "mcp-searxng" "--searxng-url" "http://127.0.0.1:8888" ];
       };
       qdrant = {
         command = "${pkgs.uv}/bin/uvx";
@@ -277,7 +279,7 @@ in
       };
       spider = {
         command = "${pkgs.nodejs}/bin/npx";
-        args = [ "-y" "@spider-rs/spider-mcp" ];
+        args = [ "-y" "spider-mcp" ];
       };
       mem0 = {
         command = "${pkgs.uv}/bin/uvx";

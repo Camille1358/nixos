@@ -72,7 +72,7 @@ in
     port = 6379;
     settings = {
       maxmemory = "2gb";
-      maxmemory-policy = "allkeys-lru"; # Éviction automatique pour le caching sémantique (Niveau 3.3)
+      maxmemory-policy = "allkeys-lru";
     };
   };
 
@@ -84,13 +84,13 @@ in
   boot.initrd.kernelModules = [ "amdgpu" ];
   boot.kernelModules = [ "amdgpu" "kvm-amd" ];
   boot.kernelParams = [
-    "amdgpu.vm_fragment_size=9"       # Alignement de page VRAM (réduction de la fragmentation)
-    "amdgpu.ppfeaturemask=0xffffffff" # Gestion débridée des fréquences GPU
-    "amdgpu.gpu_recovery=1"           # Récupération à chaud sans crash système en cas d'OOM
+    "amdgpu.vm_fragment_size=9"
+    "amdgpu.ppfeaturemask=0xffffffff"
+    "amdgpu.gpu_recovery=1"
     "amdgpu.dpm=1"
   ];
   boot.kernel.sysctl = {
-    "vm.max_map_count" = lib.mkForce 2147483642; # Priorise cette valeur sur les autres fichiers
+    "vm.max_map_count" = lib.mkForce 2147483642;
   };
 
   # Déverrouillage des plafonds d'allocation mémoire pour les moteurs ROCm/HIP
@@ -132,7 +132,6 @@ in
     "d /var/lib/mistralrs 0770 root root - -"
     "d /var/lib/qdrant 0750 qdrant qdrant - -"
     "d /var/lib/tei-embeddings 0775 root root - -"
-    # 1.4 Stockage Axolotl
     "d /var/lib/axolotl 0775 root root - -"
     "d /var/lib/axolotl/configs 0775 root root - -"
     "d /var/lib/axolotl/data 0775 root root - -"
@@ -524,7 +523,6 @@ in
       general_settings = {
         master_key = "sk-litellm-local-root-key";
         store_model_in_db = false;
-        database_url = "";
       };
       litellm_settings = {
         drop_params = true;
@@ -635,6 +633,17 @@ in
         autocomplete = "duckduckgo";
         formats = [ "html" "json" ]; # Obligatoire pour la consommation RAG / Agents
       };
+      outgoing = {
+        request_timeout = 5.0;
+        user_agent = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
+      };
+      engines = [
+        { name = "duckduckgo"; engine = "duckduckgo"; disabled = false; }
+        { name = "google"; engine = "google"; disabled = false; }
+        { name = "bing"; engine = "bing"; disabled = false; }
+        { name = "wikidata"; engine = "wikidata"; disabled = false; }
+        { name = "wikipedia"; engine = "wikipedia"; disabled = false; }
+      ];
     };
   };
 
