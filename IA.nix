@@ -1,7 +1,42 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 let
   local = import ./local.nix;
+
+  # =========================================================================
+  # CENTRALISATION DES PARAMÈTRES ET MAILLAGE RÉSEAU (N0, N1, N2)
+  # =========================================================================
+  cfg = {
+    rocmGfx = "10.3.0"; # Version ROCm spoofée pour RDNA2/RDNA3
+
+    # Ports des services
+    ports = {
+      ollama    = 11434;
+      mistralrs = 1234;
+      llamacpp  = 8085;
+      qdrantHttp= 6333;
+      qdrantGrpc= 6334;
+      tei       = 8080;
+      mem0      = 8081;
+    };
+
+    # Endpoints vus depuis l'hôte NixOS
+    endpoints = {
+      ollama    = "http://127.0.0.1:11434";
+      mistralrs = "http://127.0.0.1:1234/v1";
+      llamacpp  = "http://127.0.0.1:8085/v1";
+      qdrant    = "http://127.0.0.1:6333";
+      tei       = "http://127.0.0.1:8080/v1";
+      mem0      = "http://127.0.0.1:8081";
+    };
+
+    # Endpoints vus depuis les conteneurs Docker (passerelle bridge)
+    dockerEndpoints = {
+      ollama = "http://host.docker.internal:11434";
+      qdrant = "http://host.docker.internal:6333";
+      tei    = "http://host.docker.internal:8080/v1";
+    };
+  };
 in
 
 {
@@ -25,19 +60,25 @@ in
 
   # 0.1 Pilotage Matériel & Drivers ROCm / HIP
   boot.initrd.kernelModules = [ "amdgpu" ];
+  boot.kernelModules = [ "amdgpu" "kvm-amd" ];
   boot.kernelParams = [
-    "amdgpu.vm_fragment_size=9"       # Alignement de la taille de page VRAM pour réduire la fragmentation
-    "amdgpu.ppfeaturemask=0xffffffff" # Gestion débridée des fréquences/puissances GPU
-    "amdgpu.gpu_recovery=1"           # Récupération automatique du GPU sans plantage du système en cas d'OOM
+    "amdgpu.vm_fragment_size=9"       # Alignement de page VRAM (réduction de la fragmentation)
+    "amdgpu.ppfeaturemask=0xffffffff" # Gestion débridée des fréquences GPU
+    "amdgpu.gpu_recovery=1"           # Récupération à chaud sans crash système en cas d'OOM
+    "amdgpu.dpm=1"
   ];
+  boot.kernel.sysctl = {
+    "vm.max_map_count" = lib.mkForce 2147483642; # Priorise cette valeur sur les autres fichiers
+  };
 
-  # Suppression des plafonds d'allocation mémoire pour le runtime ROCm/HIP
+  # Déverrouillage des plafonds d'allocation mémoire pour les moteurs ROCm/HIP
   security.pam.loginLimits = [
     { domain = "*"; item = "memlock"; type = "-"; value = "unlimited"; }
     { domain = "*"; item = "nofile";  type = "-"; value = "1048576"; }
+    { domain = "*"; item = "nproc";   type = "-"; value = "524288"; }
   ];
 
-  # Drivers graphiques et bibliothèques de calcul HIP / ROCm / OpenCL
+  # Drivers graphiques et bibliothèques ROCm / HIP / OpenCL
   hardware.graphics = {
     enable = true;
     enable32Bit = true;
@@ -51,20 +92,23 @@ in
 
   hardware.amdgpu.opencl.enable = true;
 
-  # Variables d'environnement globales pour le pilotage ROCm / PyTorch
+  # Variables d'environnement globales pour le runtime ROCm / PyTorch
   environment.variables = {
-    HSA_OVERRIDE_GFX_VERSION = "10.3.0";          # Spoof RDNA2 pour compatibilité ROCm universelle
+    HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
     ROC_ENABLE_PRE_VEGA = "0";
-    PYTORCH_ROCM_ALLOC_CONF = "max_split_size_mb:512"; # Allocation mémoire granulaire PyTorch
+    PYTORCH_ROCM_ALLOC_CONF = "max_split_size_mb:512";
     HIP_VISIBLE_DEVICES = "0";
     GPU_MAX_ALLOC_PERCENT = "100";
     GPU_SINGLE_ALLOC_PERCENT = "100";
-    AMD_LOG_LEVEL = "0";                          # Suppression des logs verbeux ROCm
+    AMD_LOG_LEVEL = "0";
   };
 
   # Lien symbolique requis pour les runtimes HIP/ROCm natifs
   systemd.tmpfiles.rules = [
     "L+ /opt/rocm/hip - - - - ${pkgs.rocmPackages.clr}"
+    "d /var/lib/llama-cpp 0770 root root - -"
+    "d /var/lib/mistralrs 0770 root root - -"
+    "d /var/lib/qdrant 0750 qdrant qdrant - -"
   ];
 
   # =========================================================================
@@ -75,19 +119,18 @@ in
   services.ollama = {
     enable = true;
     package = pkgs.ollama-rocm;
-    rocmOverrideGfx = "10.3.0";
+    rocmOverrideGfx = cfg.rocmGfx;
     host = "0.0.0.0";
-    port = 11434;
+    port = cfg.ports.ollama;
 
-    # Injection directe des variables de comportement du serveur d'inférence
     environmentVariables = {
-      HSA_OVERRIDE_GFX_VERSION = "10.3.0";
-      OLLAMA_NUM_PARALLEL = "4";         # Inférence simultanée de 4 requêtes d'agents
-      OLLAMA_MAX_LOADED_MODELS = "2";    # Maintient 2 modèles distincts réservés en VRAM
-      OLLAMA_KEEP_ALIVE = "24h";         # Aucune décharge VRAM pour zéro latence au démarrage
-      OLLAMA_FLASH_ATTENTION = "1";      # Utilisation du Flash Attention pour diviser l'empreinte VRAM
-      OLLAMA_ORIGINS = "*";              # Autorise les appels CORS multi-domaines
-      OLLAMA_KV_CACHE_TYPE = "q4_0";     # Quantification du KV cache pour quadrupler la fenêtre de contexte
+      HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
+      OLLAMA_NUM_PARALLEL = "4";
+      OLLAMA_MAX_LOADED_MODELS = "2";
+      OLLAMA_KEEP_ALIVE = "24h";
+      OLLAMA_FLASH_ATTENTION = "1";
+      OLLAMA_ORIGINS = "*";
+      OLLAMA_KV_CACHE_TYPE = "q4_0";
     };
 
     loadModels = [
@@ -104,20 +147,24 @@ in
     wantedBy = [ "multi-user.target" ];
 
     environment = {
-      HSA_OVERRIDE_GFX_VERSION = "10.3.0";
+      HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
       HSA_ENABLE_SDMA = "0";
       HF_HOME = "/var/lib/mistralrs";
     };
 
     serviceConfig = {
-      ExecStart = "${pkgs.mistral-rs}/bin/mistralrs-server --port 1234 plain -m Qwen/Qwen2.5-Coder-7B-Instruct";
+      ExecStart = ''
+        ${pkgs.mistral-rs}/bin/mistralrs-server \
+          --port ${toString cfg.ports.mistralrs} \
+          plain \
+          -m Qwen/Qwen2.5-Coder-7B-Instruct \
+          -a qwen2
+      '';
       Restart = "on-failure";
       RestartSec = "5s";
       StateDirectory = "mistralrs";
       LimitMEMLOCK = "infinity";
 
-      DynamicUser = true;
-      PrivateDevices = false;
       SupplementaryGroups = [ "video" "render" ];
     };
   };
@@ -129,23 +176,22 @@ in
     wantedBy = [ "multi-user.target" ];
 
     environment = {
-      HSA_OVERRIDE_GFX_VERSION = "10.3.0";
+      HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
     };
 
-    path = [ pkgs.curl ];
+    path = [ pkgs.curl pkgs.llama-cpp-rocm ];
 
     serviceConfig = {
-      # Téléchargement automatique du modèle GGUF dans /var/lib/llama-cpp s'il est absent
       ExecStartPre = pkgs.writeShellScript "download-gguf" ''
         if [ ! -f /var/lib/llama-cpp/modele.gguf ]; then
-          echo "Téléchargement du modèle GGUF Qwen2.5-Coder..."
+          echo "Téléchargement du modèle GGUF..."
           ${pkgs.curl}/bin/curl -L "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf" -o /var/lib/llama-cpp/modele.gguf
         fi
       '';
       ExecStart = ''
         ${pkgs.llama-cpp-rocm}/bin/llama-server \
           --host 0.0.0.0 \
-          --port 8085 \
+          --port ${toString cfg.ports.llamacpp} \
           -m /var/lib/llama-cpp/modele.gguf \
           -ngl 99 \
           -c 8192 \
@@ -158,13 +204,11 @@ in
       StateDirectory = "llama-cpp";
       LimitMEMLOCK = "infinity";
 
-      DynamicUser = true;
-      PrivateDevices = false;
       SupplementaryGroups = [ "video" "render" ];
     };
   };
 
-  # 1.4 Virtualisation Docker (ROCm passthrough)
+  # 1.4 Virtualisation Docker (Liaison N0 ➔ Docker ROCm Passthrough)
   virtualisation.docker = {
     enable = true;
     autoPrune.enable = true;
@@ -189,8 +233,8 @@ in
     settings = {
       service = {
         host = "0.0.0.0";
-        http_port = 6333;
-        grpc_port = 6334;
+        http_port = cfg.ports.qdrantHttp;
+        grpc_port = cfg.ports.qdrantGrpc;
         enable_cors = true;
       };
       storage = {
@@ -211,36 +255,45 @@ in
   virtualisation.oci-containers = {
     backend = "docker";
     containers = {
-      # 2.3 Embeddings & Rerank (HuggingFace TEI)
-    tei-embeddings = {
-      image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.6";
-      ports = [ "8080:80" ];
-      cmd = [
-        "--model-id" "BAAI/bge-large-en-v1.5"
-        "--port" "80"
-        "--max-concurrent-requests" "512"
-        "--max-batch-tokens" "16384"
-        "--auto-truncate"
-      ];
-      extraOptions = [ "--device=/dev/kfd" "--device=/dev/dri" ];
-    };
-
-      # 2.4 Service de Mémoire Long Terme (Mem0 Server)
-    mem0-service = {
-      image = "mem0/mem0:latest";
-      ports = [ "8081:8000" ];
-      environment = {
-        VECTOR_STORE = "qdrant";
-        QDRANT_HOST = "http://host.docker.internal:6333";
-        LLM_PROVIDER = "ollama";
-        OLLAMA_BASE_URL = "http://host.docker.internal:11434";
-        OLLAMA_MODEL = "qwen2.5-coder:14b";
-        EMBEDDING_PROVIDER = "openai";
-        OPENAI_BASE_URL = "http://host.docker.internal:8080/v1";
-        OPENAI_API_KEY = "none";
+      # 2.3 Embeddings & Rerank (HuggingFace TEI - Interconnecté à N0 GPU)
+      tei-embeddings = {
+        image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.6";
+        ports = [ "${toString cfg.ports.tei}:80" ];
+        cmd = [
+          "--model-id" "BAAI/bge-large-en-v1.5"
+          "--port" "80"
+          "--max-concurrent-requests" "512"
+          "--max-batch-tokens" "16384"
+          "--auto-truncate"
+        ];
+        # Transmission directe des périphériques ROCm/KFD
+        extraOptions = [
+          "--device=/dev/kfd"
+          "--device=/dev/dri"
+        ];
       };
-      extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
-    };
+
+      # 2.4 Service de Mémoire Long Terme (Mem0 - Interconnecté à N1, N2.1, N2.3)
+      mem0-service = {
+        image = "mem0/mem0:latest";
+        ports = [ "${toString cfg.ports.mem0}:8000" ];
+        environment = {
+          # Connexion à Qdrant (N2.1)
+          VECTOR_STORE = "qdrant";
+          QDRANT_HOST = cfg.dockerEndpoints.qdrant;
+
+          # Connexion à Ollama (N1.1) pour l'extraction mémoire
+          LLM_PROVIDER = "ollama";
+          OLLAMA_BASE_URL = cfg.dockerEndpoints.ollama;
+          OLLAMA_MODEL = "qwen2.5-coder:14b";
+
+          # Connexion à TEI (N2.3) pour le vector embedding
+          EMBEDDING_PROVIDER = "openai";
+          OPENAI_BASE_URL = cfg.dockerEndpoints.tei;
+          OPENAI_API_KEY = "none";
+        };
+        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+      };
 
       # 3.1 Façade Utilisateur (OmniRoute) - Port 3000
       omniroute = {
@@ -462,5 +515,29 @@ in
     environment = {
       N8N_PORT = "5678";
     };
+  };
+
+  # =========================================================================
+  # ORDONNANCEMENT SYSTEMD (MAILLAGE INTER-SERVICES)
+  # =========================================================================
+
+  # S'assure que Mem0 démarre uniquement lorsque Qdrant, Ollama et TEI sont fonctionnels
+  systemd.services."docker-mem0-service" = {
+    after = [
+      "qdrant.service"
+      "ollama.service"
+      "docker-tei-embeddings.service"
+    ];
+    wants = [
+      "qdrant.service"
+      "ollama.service"
+      "docker-tei-embeddings.service"
+    ];
+  };
+
+  # Accès GPU pour le conteneur TEI
+  systemd.services."docker-tei-embeddings" = {
+    after = [ "docker.service" ];
+    wants = [ "docker.service" ];
   };
 }
