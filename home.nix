@@ -2,14 +2,18 @@
 
 let
   local = import ./local.nix;
-  pkgs-stable-latest = import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz") {
-    config.allowUnfree = true;
-  };
-  pkgs-unstable = import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {
-    config.allowUnfree = true;
-  };
+  pkgs-stable-latest =
+    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz")
+      {
+        config.allowUnfree = true;
+      };
+  pkgs-unstable =
+    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz")
+      {
+        config.allowUnfree = true;
+      };
 
-#-----------------------------------------------IA------------------------------------------------
+  #-----------------------------------------------IA------------------------------------------------
   # 6.1 Dérivation personnalisée Nix pour Spider CLI depuis Crates.io
   spider-cli = pkgs.rustPlatform.buildRustPackage rec {
     pname = "spider_cli";
@@ -26,7 +30,7 @@ let
     buildInputs = [ pkgs.openssl ];
   };
 
-  # 5.3 Framework Agent Graph (PydanticAI)  
+  # 5.3 Framework Agent Graph (PydanticAI)
   pydantic-ai = pkgs.python3Packages.buildPythonPackage rec {
     pname = "pydantic_ai_slim";
     version = "0.0.18";
@@ -38,7 +42,7 @@ let
     };
     doCheck = false;
     dontCheckRuntimeDeps = true; # Désactive la vérification stricte des dépendances runtime optionnelles
-    
+
     nativeBuildInputs = [ pkgs.python3Packages.hatchling ];
     propagatedBuildInputs = with pkgs.python3Packages; [
       pydantic
@@ -58,16 +62,20 @@ let
       hash = "sha256-pGTb9hsM1RK7OHBpDmgWjAPc2ZP4YzY7isDKNhRWUIA=";
     };
     doCheck = false;
+    
+    # Correction du build sandbox Nix
+    preBuild = ''
+      export HOME=$(mktemp -d)
+    '';
+
     propagatedBuildInputs = with pkgs.python3Packages; [
       pydantic
       httpx
       beautifulsoup4
     ];
   };
-#-------------------------------------------------------------------------------------------------
+  #-------------------------------------------------------------------------------------------------
 in
-
-
 
 {
   nix.extraOptions = ''
@@ -76,15 +84,15 @@ in
   home = {
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
-    packages = with pkgs; [ # Paquets installés uniquement pour la session utilisateur
-    #-----------------------------------------------APPs------------------------------------------------
+    packages = with pkgs; [
+      # Paquets installés uniquement pour la session utilisateur
+      #-----------------------------------------------APPs------------------------------------------------
       vlc
       vscode
       spotify
       unzip
       keepassxc
       obs-studio
-      antigravity
       fastfetch
       htop
       nvtopPackages.amd
@@ -92,12 +100,12 @@ in
       sublime3
       qalculate-qt
       evince
-    #----------------------------------------------Browser----------------------------------------------
-      pkgs-unstable.tor-browser #dernière version possible "pkgs-unstable"
-      pkgs-unstable.mullvad-browser #dernière version sur la stable "pkgs-stable-latest.mullvad-browser"
+      #----------------------------------------------Browser----------------------------------------------
+      pkgs-unstable.tor-browser # dernière version possible "pkgs-unstable"
+      pkgs-unstable.mullvad-browser # dernière version sur la stable "pkgs-stable-latest.mullvad-browser"
       pkgs-unstable.brave
       google-chrome
-    #-----------------------------------------------Games-----------------------------------------------
+      #-----------------------------------------------Games-----------------------------------------------
       vesktop
       easyeffects
       lutris-free
@@ -107,9 +115,8 @@ in
       gamescope
       goverlay
       mangohud
-    #---------------------------------------------------------------------------------------------------
-
-    #-------------------------------------------------IA------------------------------------------------
+      #---------------------------------------------------------------------------------------------------
+      #-------------------------------------------------IA------------------------------------------------
       appflowy
       opencode
       docker-compose
@@ -124,27 +131,30 @@ in
       uv # Executera instantanément Guardrails AI, MCP et RuFlo via virtualenv légers
 
       #-------------------------------------------
-      (python3.withPackages (ps: with ps; [
-        lancedb
-        pyarrow
-        # 4.1 Validation & Sorties Structurées
-        pydantic
-        pydantic-core
-        # 5.3 Frameworks Agents Python
-        langgraph
-        # 5.1 Protocole MCP Python
-        mcp
-        # issue du bloc let-in
-        spider-cli
-        pydantic-ai
-        #crawl4ai
-      ]))
+      (python3.withPackages (
+        ps: with ps; [
+          lancedb
+          pyarrow
+          # 4.1 Validation & Sorties Structurées
+          pydantic
+          pydantic-core
+          # 5.3 Frameworks Agents Python
+          langgraph
+          # 5.1 Protocole MCP Python
+          mcp
+          # issue du bloc let-in
+          spider-cli
+          pydantic-ai
+          #crawl4ai
+          crawl4ai
+        ]
+      ))
       #-------------------------------------------
       # 6.5 Agent de Codage Terminal (déjà ajouté précédemment)
       opencode
-    #--------------------------------------------------------------------------------------------------
+      #--------------------------------------------------------------------------------------------------
 
-    # Discord PTB + Vencord
+      # Discord PTB + Vencord
       (discord-ptb.override {
         withVencord = true;
       })
@@ -200,7 +210,7 @@ in
         "browser.startup.page" = 3; # Reouvrir automatiquement la derniere session (onglets ouverts)
         "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
       }; # Desactivation taille minimale des onglets pour plus de fluidité et d'espace sur la barre d'onglets
-      userChrome = '' 
+      userChrome = ''
         #tabbrowser-tabs .tabbrowser-tab { 
           min-width: 0px !important;
         }
