@@ -168,6 +168,7 @@ in
       rustc
       rust-analyzer
       gcc
+      rustPlatform.rustLibSrc
       uv # Executera instantanément Guardrails AI, MCP et RuFlo via virtualenv légers
       
 

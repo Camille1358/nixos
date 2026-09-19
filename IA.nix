@@ -9,6 +9,13 @@ let
   cfg = {
     rocmGfx = "10.3.0"; # Version ROCm spoofée pour RDNA2/RDNA3
 
+    # Ouverture du pare-feu pour le réseau interne et les conteneurs Docker
+    networking.firewall = {
+      enable = true;
+      allowedTCPPorts = [ 3000 4000 5432 5678 6333 6379 8005 8080 8081 8082 8085 8888 11434 1234 3001 ];
+      trustedInterfaces = [ "docker0" ];
+    };
+
     # Table unifiée des ports
     ports = {
       ollama        = 11434;
@@ -310,32 +317,22 @@ in
 
       # 2.3 Embeddings & Rerank (HuggingFace TEI)
       tei-embeddings = {
-        image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.6";
+        image = "ghcr.io/huggingface/text-embeddings-inference:cpu-1.6";
         ports = [ "${toString cfg.ports.tei}:80" ];
         volumes = [
           "/var/lib/tei-embeddings:/data"
         ];
-        environment = {
-          HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
-        };
         cmd = [
           "--model-id" "BAAI/bge-large-en-v1.5"
           "--port" "80"
           "--max-concurrent-requests" "512"
           "--max-batch-tokens" "16384"
-          "--auto-truncate"
-        ];
-        extraOptions = [
-          "--device=/dev/kfd"
-          "--device=/dev/dri/renderD128"
-          "--device=/dev/dri/card1"
-          "--ipc=host"
         ];
       };
 
       # 2.4 Service de Mémoire Long Terme (Mem0)
       mem0-service = {
-        image = "mem0/mem0:latest";
+        image = "mem0ai/mem0:latest";
         ports = [ "${toString cfg.ports.mem0}:8000" ];
         environment = {
           VECTOR_STORE = "qdrant";
@@ -359,7 +356,7 @@ in
 
       # 3.1 Façade Utilisateur (OmniRoute) -> Intercepte et force le passage via Guardrails
       omniroute = {
-        image = "omniroute/omniroute:latest";
+        image = "ghcr.io/omniroute/omniroute:latest";
         ports = [ "3000:3000" ];
         environment = {
           # MAILLAGE STRICT : Transfert vers Guardrails (N4.2) et non LiteLLM
@@ -377,7 +374,7 @@ in
 
       # 4.2 Filtrage & Sécurité (Guardrails AI) -> Reçoit d'OmniRoute, valide, puis transmet à LiteLLM
       guardrails-api = {
-        image = "guardrails/guardrails:latest";
+        image = "guardrails/guardrails-api:latest";
         ports = [ "8005:8000" ];
         environment = {
           # MAILLAGE STRICT : Sortie post-validation vers LiteLLM Proxy (N3.2)
@@ -396,7 +393,7 @@ in
         ports = [ "3001:3000" ];
         environment = {
           NODE_ENV = "production";
-          DATABASE_URL = "postgresql://langfuse@host.docker.internal:5432/langfuse";
+          DATABASE_URL = "postgresql://langfuse:langfuse@host.docker.internal:5432/langfuse";
           REDIS_HOST = "host.docker.internal";
           REDIS_PORT = "6379";
           NEXTAUTH_URL = "http://localhost:3001";
@@ -610,7 +607,7 @@ in
     ];
     authentication = pkgs.lib.mkOverride 10 ''
       local   all             all                                     trust
-      host    all             all             172.17.0.0/16           trust
+      host    all             all             0.0.0.0/0               trust
       host    all             all             127.0.0.1/32            trust
     '';
   };
@@ -651,22 +648,14 @@ in
   # NIVEAU 7 : WORKFLOWS AUTOMATISÉS, ESPACES DE TRAVAIL & INTERFACES UTILISATEUR
   # =========================================================================
 
-  # 7.1 Interface Utilisateur Principale
+  # 7.1 Interface Utilisateur Principale (Pointée directement sur LiteLLM Proxy N3.2)
   services.open-webui = {
     enable = true;
     port = 8082;
     environment = {
-      # Liaison N1.1 (Ollama direct pour fallback)
       OLLAMA_BASE_URL = cfg.endpoints.ollama;
-
-      # Liaison N3.1 (OmniRoute Façade unifiée pour tous les modèles & Guardrails)
-      OPENAI_API_BASE_URL = "http://127.0.0.1:3000/v1";
+      OPENAI_API_BASE_URL = "http://127.0.0.1:4000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
-
-      # Liaison N2.4 (Mémoire Mem0)
-      MEM0_API_URL = "http://127.0.0.1:8081";
-
-      # Liaison N6.3 (SearXNG Web Search RAG)
       ENABLE_RAG_WEB_SEARCH = "true";
       RAG_WEB_SEARCH_ENGINE = "searxng";
       RAG_WEB_SEARCH_SEARXNG_QUERY_URL = "http://127.0.0.1:8888/search?q=<query>";
@@ -699,9 +688,18 @@ in
   # =========================================================================
 
   # S'assure que Mem0 démarre uniquement lorsque Qdrant, Ollama et TEI sont fonctionnels
-  systemd.services."docker-mem0-service" = {
-    after = [ "qdrant.service" "ollama.service" "docker-tei-embeddings.service" ];
-    wants = [ "qdrant.service" "ollama.service" "docker-tei-embeddings.service" ];
+  systemd.services.mem0-service = {
+    description = "Mem0 Memory Service";
+    after = [ "network.target" "qdrant.service" ];
+    wantedBy = [ "multi-user.target" ];
+    environment = {
+      QDRANT_HOST = "127.0.0.1";
+      QDRANT_PORT = "6333";
+    };
+    serviceConfig = {
+      ExecStart = "${pkgs.uv}/bin/uvx mem0ai server --port 8081";
+      Restart = "on-failure";
+    };
   };
 
   # La télémétrie et la base de données doivent être prêtes en premier
@@ -726,12 +724,12 @@ in
   # Tunnel de routage strict : LiteLLM <- Guardrails <- OmniRoute
   systemd.services."docker-guardrails-api" = {
     after = [ "litellm.service" ];
-    requires = [ "litellm.service" ]; # Hard dependency
+    wants = [ "litellm.service" ];
   };
 
   systemd.services."docker-omniroute" = {
     after = [ "docker-guardrails-api.service" "docker-langfuse-server.service" ];
-    requires = [ "docker-guardrails-api.service" ]; # Hard dependency
+    wants = [ "docker-guardrails-api.service" "docker-langfuse-server.service" ];
   };
 
   # Accès GPU pour le conteneur TEI
@@ -767,4 +765,17 @@ in
     wants = [ "docker-omniroute.service" "searx.service" "qdrant.service" "docker-mem0-service.service" ];
   };
 
+  systemd.services.guardrails-api = {
+    description = "Guardrails AI Server";
+    after = [ "network.target" "litellm.service" ];
+    wantedBy = [ "multi-user.target" ];
+    environment = {
+      OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
+      OPENAI_API_KEY = "sk-litellm-local-root-key";
+    };
+    serviceConfig = {
+      ExecStart = "${pkgs.uv}/bin/uvx guardrails-ai start --port 8005";
+      Restart = "on-failure";
+    };
+  };
 }
