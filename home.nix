@@ -172,7 +172,7 @@ in
           wrapProgram $out/bin/appflowy \
             --set AI_OPENAI_API_KEY "sk-litellm-local-root-key" \
             --set AI_OPENAI_HOST "http://127.0.0.1:3000/v1" \
-            --set OLLAMA_HOST "http://127.0.0.1:11434"
+            --set OLLAMA_HOST "http://127.0.0.1:3000" 
         '';
       })
 

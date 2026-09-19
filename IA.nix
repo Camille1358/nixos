@@ -285,7 +285,7 @@ in
     backend = "docker";
     containers = {
 
-      # 1.4 Fine-Tuning Sans-Code (Axolotl ROCm - Interconnecté à N0 GPU)
+      # 1.4 Fine-Tuning Sans-Code (Axolotl ROCm)
       axolotl = {
         image = "winglian/axolotl:main-rocm6.0-py3.10";
         volumes = [
@@ -303,7 +303,7 @@ in
         extraOptions = [
           "--device=/dev/kfd"
           "--device=/dev/dri/renderD128"
-          "--device=/dev/dri/card0"
+          "--device=/dev/dri/card1"
           "--ipc=host"
           "--shm-size=16g"
         ];
@@ -328,7 +328,8 @@ in
         ];
         extraOptions = [
           "--device=/dev/kfd"
-          "--device=/dev/dri"
+          "--device=/dev/dri/renderD128"
+          "--device=/dev/dri/card1"
           "--ipc=host"
         ];
       };
@@ -338,21 +339,21 @@ in
         image = "mem0/mem0:latest";
         ports = [ "${toString cfg.ports.mem0}:8000" ];
         environment = {
-          # Liaison N2.1 (Qdrant)
           VECTOR_STORE = "qdrant";
           QDRANT_HOST = "host.docker.internal";
           QDRANT_PORT = toString cfg.ports.qdrantHttp;
 
-          # Liaison N1.1 (Ollama ROCm)
-          LLM_PROVIDER = "ollama";
-          OLLAMA_BASE_URL = cfg.dockerEndpoints.ollama;
-          OLLAMA_MODEL = "qwen2.5-coder:14b";
+          # MAILLAGE CORRIGÉ : Forcé via OmniRoute N3.1 (Cache + Tracing)
+          LLM_PROVIDER = "openai";
+          OPENAI_API_BASE = cfg.dockerEndpoints.omniroute;
+          OPENAI_API_KEY = "sk-litellm-local-root-key";
+          OPENAI_MODEL = "ollama-general"; # Alias défini dans LiteLLM
 
-          # Liaison N2.3 (TEI Embeddings)
+          # MAILLAGE CORRIGÉ : Embeddings via OmniRoute au lieu de TEI direct
           EMBEDDING_PROVIDER = "openai";
-          OPENAI_BASE_URL = cfg.dockerEndpoints.tei;
-          OPENAI_API_KEY = "none";
-          EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5";
+          OPENAI_EMBEDDING_BASE_URL = cfg.dockerEndpoints.omniroute;
+          OPENAI_EMBEDDING_API_KEY = "sk-litellm-local-root-key";
+          EMBEDDING_MODEL = "bge-embeddings"; # Alias défini dans LiteLLM
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -406,7 +407,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 6.3 Perplexica (Search IA) - Redirection sur OmniRoute N3.1
+      # 6.3 Perplexica (Search IA)
       perplexica-app = {
         image = "itshasbulla/perplexica:latest";
         ports = [ "${toString cfg.ports.perplexica}:3000" ];
@@ -414,12 +415,13 @@ in
           SEARXNG_API_URL = cfg.dockerEndpoints.searxng;
           OPENAI_API_KEY = "sk-litellm-local-root-key";
           OPENAI_API_URL = cfg.dockerEndpoints.omniroute;
-          EMBEDDING_API_URL = cfg.dockerEndpoints.tei;
+          # MAILLAGE CORRIGÉ : Rapatriement de l'URL d'embedding sur la façade
+          EMBEDDING_API_URL = cfg.dockerEndpoints.omniroute;
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 6.4 GPT Researcher - Redirection sur OmniRoute N3.1
+      # 6.4 GPT Researcher
       gpt-researcher = {
         image = "gptresearcher/gpt-researcher:latest";
         ports = [ "${toString cfg.ports.gptresearcher}:8000" ];
@@ -430,12 +432,13 @@ in
           FAST_LLM_MODEL = "openai/qwen-coder-fast";
           SMART_LLM_MODEL = "openai/ollama-general";
           EMBEDDING_PROVIDER = "custom";
-          CUSTOM_EMBEDDING_ENDPOINT = cfg.dockerEndpoints.tei;
+          # MAILLAGE CORRIGÉ : Rapatriement de l'URL d'embedding sur la façade
+          CUSTOM_EMBEDDING_ENDPOINT = cfg.dockerEndpoints.omniroute;
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 7.2 Workspace RAG Isolé (AnythingLLM) -> Redirigé sur OmniRoute (N3.1)
+      # 7.2 Workspace RAG Isolé (AnythingLLM)
       anythingllm = {
         image = "mintplexlabs/anythingllm:latest";
         ports = [ "3002:3001" ];
@@ -446,18 +449,16 @@ in
           STORAGE_DIR = "/app/server/storage";
           DISABLE_TELEMETRY = "true";
 
-          # Inférence via OmniRoute Façade (N3.1)
           LLM_PROVIDER = "openai";
           OPEN_AI_KEY = "sk-litellm-local-root-key";
           OPEN_AI_MODEL_PREF = "qwen-coder-fast";
           OPENAI_BASE_PATH = "http://host.docker.internal:3000/v1";
 
-          # Embeddings via TEI (N2.3)
+          # MAILLAGE CORRIGÉ : Embeddings via OmniRoute au lieu de TEI direct
           EMBEDDING_ENGINE = "openai";
-          EMBEDDING_BASE_PATH = "http://host.docker.internal:8080/v1";
-          EMBEDDING_MODEL_PREF = "BAAI/bge-large-en-v1.5";
+          EMBEDDING_BASE_PATH = "http://host.docker.internal:3000/v1";
+          EMBEDDING_MODEL_PREF = "bge-embeddings";
 
-          # Vector DB via Qdrant (N2.1)
           VECTOR_DB = "qdrant";
           QDRANT_ENDPOINT = "http://host.docker.internal:6333";
         };
