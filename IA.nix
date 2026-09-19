@@ -330,34 +330,10 @@ in
         ];
       };
 
-      # 2.4 Service de Mémoire Long Terme (Mem0)
-      mem0-service = {
-        image = "mem0ai/mem0:latest";
-        ports = [ "${toString cfg.ports.mem0}:8000" ];
-        environment = {
-          VECTOR_STORE = "qdrant";
-          QDRANT_HOST = "host.docker.internal";
-          QDRANT_PORT = toString cfg.ports.qdrantHttp;
-
-          # MAILLAGE CORRIGÉ : Forcé via OmniRoute N3.1 (Cache + Tracing)
-          LLM_PROVIDER = "openai";
-          OPENAI_API_BASE = cfg.dockerEndpoints.omniroute;
-          OPENAI_API_KEY = "sk-litellm-local-root-key";
-          OPENAI_MODEL = "ollama-general"; # Alias défini dans LiteLLM
-
-          # MAILLAGE CORRIGÉ : Embeddings via OmniRoute au lieu de TEI direct
-          EMBEDDING_PROVIDER = "openai";
-          OPENAI_EMBEDDING_BASE_URL = cfg.dockerEndpoints.omniroute;
-          OPENAI_EMBEDDING_API_KEY = "sk-litellm-local-root-key";
-          EMBEDDING_MODEL = "bge-embeddings"; # Alias défini dans LiteLLM
-        };
-        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
-      };
-
       # 3.1 Façade Utilisateur (OmniRoute) -> Intercepte et force le passage via Guardrails
       omniroute = {
-        image = "ghcr.io/omniroute/omniroute:latest";
-        ports = [ "3000:3000" ];
+        image = "diegosouzapw/omniroute:latest";
+        ports = [ "3000:20128" ];
         environment = {
           # MAILLAGE STRICT : Transfert vers Guardrails (N4.2) et non LiteLLM
           FORWARD_BASE_URL = "http://host.docker.internal:8005/v1"; 
@@ -368,21 +344,6 @@ in
           LANGFUSE_SECRET_KEY = "sk-lf-local-key";
           
           REDIS_URL = "redis://host.docker.internal:6379"; # Cache sémantique (N3.3)
-        };
-        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
-      };
-
-      # 4.2 Filtrage & Sécurité (Guardrails AI) -> Reçoit d'OmniRoute, valide, puis transmet à LiteLLM
-      guardrails-api = {
-        image = "guardrails/guardrails-api:latest";
-        ports = [ "8005:8000" ];
-        environment = {
-          # MAILLAGE STRICT : Sortie post-validation vers LiteLLM Proxy (N3.2)
-          OPENAI_API_BASE = "http://host.docker.internal:4000/v1";
-          OPENAI_API_KEY = "sk-litellm-local-root-key";
-          
-          # Connexion Télémétrie (N5.4) pour tracer les rejets de prompts
-          LANGFUSE_HOST = "http://host.docker.internal:3001";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -695,9 +656,11 @@ in
     environment = {
       QDRANT_HOST = "127.0.0.1";
       QDRANT_PORT = "6333";
+      UV_CACHE_DIR = "/var/lib/mem0-service/.cache/uv";
     };
     serviceConfig = {
-      ExecStart = "${pkgs.uv}/bin/uvx mem0ai server --port 8081";
+      StateDirectory = "mem0-service";
+      ExecStart = "${pkgs.uv}/bin/uvx --from mem0ai mem0 server --port 8081";
       Restart = "on-failure";
     };
   };
@@ -722,14 +685,9 @@ in
   };
 
   # Tunnel de routage strict : LiteLLM <- Guardrails <- OmniRoute
-  systemd.services."docker-guardrails-api" = {
-    after = [ "litellm.service" ];
-    wants = [ "litellm.service" ];
-  };
-
   systemd.services."docker-omniroute" = {
-    after = [ "docker-guardrails-api.service" "docker-langfuse-server.service" ];
-    wants = [ "docker-guardrails-api.service" "docker-langfuse-server.service" ];
+    after = [ "guardrails-api.service" "docker-langfuse-server.service" ];
+    wants = [ "guardrails-api.service" "docker-langfuse-server.service" ];
   };
 
   # Accès GPU pour le conteneur TEI
@@ -756,13 +714,13 @@ in
 
   # Open WebUI et n8n passent via OmniRoute (N3.1)
   systemd.services."open-webui" = {
-    after = [ "docker-omniroute.service" "searx.service" "docker-mem0-service.service" ];
-    wants = [ "docker-omniroute.service" "searx.service" "docker-mem0-service.service" ];
+    after = [ "docker-omniroute.service" "searx.service" "mem0-service.service" ];
+    wants = [ "docker-omniroute.service" "searx.service" "mem0-service.service" ];
   };
 
   systemd.services."n8n" = {
-    after = [ "docker-omniroute.service" "searx.service" "qdrant.service" "docker-mem0-service.service" ];
-    wants = [ "docker-omniroute.service" "searx.service" "qdrant.service" "docker-mem0-service.service" ];
+    after = [ "docker-omniroute.service" "searx.service" "qdrant.service" "mem0-service.service" ];
+    wants = [ "docker-omniroute.service" "searx.service" "qdrant.service" "mem0-service.service" ];
   };
 
   systemd.services.guardrails-api = {
@@ -772,9 +730,11 @@ in
     environment = {
       OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
+      UV_CACHE_DIR = "/var/lib/guardrails-api/.cache/uv";
     };
     serviceConfig = {
-      ExecStart = "${pkgs.uv}/bin/uvx guardrails-ai start --port 8005";
+      StateDirectory = "guardrails-api";
+      ExecStart = "${pkgs.uv}/bin/uvx --from guardrails-ai guardrails start --port 8005";
       Restart = "on-failure";
     };
   };
