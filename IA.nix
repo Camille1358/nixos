@@ -294,6 +294,7 @@ in
         ports = [ "${toString cfg.ports.tei}:80" ];
         volumes = [
           "/var/lib/tei-embeddings:/data"
+          "/dev/dri:/dev/dri"
         ];
         environment = {
           HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
@@ -307,8 +308,7 @@ in
         ];
         extraOptions = [
           "--device=/dev/kfd"
-          "--device=/dev/dri/renderD128"
-          "--device=/dev/dri/card0"
+          "--ipc=host"
         ];
       };
 
@@ -331,6 +331,7 @@ in
           EMBEDDING_PROVIDER = "openai";
           OPENAI_BASE_URL = cfg.dockerEndpoints.tei;
           OPENAI_API_KEY = "none";
+          EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -345,6 +346,7 @@ in
           LITELLM_API_KEY = "sk-litellm-local-root-key";
           # Liaison N3.1 ➔ N5.4
           LANGFUSE_HOST = "http://host.docker.internal:3001";
+          REDIS_URL = "redis://host.docker.internal:6379";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -532,6 +534,14 @@ in
           model_name = "ollama-general";
           litellm_params = {
             model = "ollama/qwen2.5-coder:14b";
+            api_base = cfg.endpoints.ollama;
+            stream = true;
+          };
+        }
+        {
+          model_name = "deepseek-r1";
+          litellm_params = {
+            model = "ollama/deepseek-r1:14b";
             api_base = cfg.endpoints.ollama;
             stream = true;
           };
