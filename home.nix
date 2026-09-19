@@ -88,22 +88,19 @@ in
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
     sessionVariables = {
-      # Routage Inférence via Façade OmniRoute N3.1 -> Guardrails N4.2 -> LiteLLM N3.2
+      # ----------------------------------------------------------------------
+      # MAILLAGE GLOBAL : ROUTAGE, MÉMOIRE ET TÉLÉMÉTRIE
+      # ----------------------------------------------------------------------
+      # Routage Universel ➔ Façade OmniRoute (N3.1)
       OPENAI_API_BASE = "http://127.0.0.1:3000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
       
-      # Validation Guardrails AI N4.2
+      # Bypass sécurisé pour Guardrails AI (N4.2) si appelé en direct
       GUARDRAILS_API_BASE = "http://127.0.0.1:8005/v1";
-      GUARDRAILS_BASE_URL = "http://127.0.0.1:3000/v1";
-      GUARDRAILS_API_KEY = "sk-litellm-local-root-key";
-
-      # Service de Mémoire Long Terme Mem0 N2.4
+      
+      # Mémoire Long Terme Globale (N2.4)
       MEM0_HOST = "http://127.0.0.1:8081";
       MEM0_API_URL = "http://127.0.0.1:8081";
-
-      # Interconnexion de RuFlo à la façade OmniRoute N3.1 et Langfuse N5.4
-      RUFLO_LLM_ENDPOINT = "http://127.0.0.1:3000/v1";
-      RUFLO_TELEMETRY_HOST = "http://127.0.0.1:3001";
 
       # Observabilité LLMOps Névralgique (N5.4 Langfuse)
       LANGFUSE_HOST = "http://127.0.0.1:3001";
@@ -114,7 +111,11 @@ in
       SEARXNG_URL = "http://127.0.0.1:8888";
       QDRANT_URL = "http://127.0.0.1:6333";
 
-      # Configuration Runtime RuFlo (N4.3)
+      # ----------------------------------------------------------------------
+      # NIVEAU 4.3 : HARNAIS RUFLO (Connecté au maillage)
+      # ----------------------------------------------------------------------
+      RUFLO_LLM_ENDPOINT = "http://127.0.0.1:3000/v1"; # Pointe sur N3.1
+      RUFLO_TELEMETRY_HOST = "http://127.0.0.1:3001";  # Pointe sur N5.4
       RUFLO_WORKTREE_ROOT = "/var/lib/ruflo/worktrees";
       RUFLO_DEFAULT_MODEL = "qwen-coder-fast";
     };

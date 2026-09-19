@@ -357,30 +357,35 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 3.1 Façade Utilisateur (OmniRoute) -> Intercepte les flux et envoie vers Guardrails AI N4.2
+      # 3.1 Façade Utilisateur (OmniRoute) -> Intercepte et force le passage via Guardrails
       omniroute = {
         image = "omniroute/omniroute:latest";
         ports = [ "3000:3000" ];
         environment = {
-          # Liaison N3.1 ➔ N4.2 (Guardrails AI)
-          FORWARD_BASE_URL = "http://host.docker.internal:8005/v1";
-          LITELLM_BASE_URL = "http://host.docker.internal:4000";
-          LITELLM_API_KEY = "sk-litellm-local-root-key";
-          # Liaison N3.1 ➔ N5.4 & N3.3
+          # MAILLAGE STRICT : Transfert vers Guardrails (N4.2) et non LiteLLM
+          FORWARD_BASE_URL = "http://host.docker.internal:8005/v1"; 
+          
+          # Télémétrie OmniRoute -> Langfuse (N5.4)
           LANGFUSE_HOST = "http://host.docker.internal:3001";
-          REDIS_URL = "redis://host.docker.internal:6379";
+          LANGFUSE_PUBLIC_KEY = "pk-lf-local-key";
+          LANGFUSE_SECRET_KEY = "sk-lf-local-key";
+          
+          REDIS_URL = "redis://host.docker.internal:6379"; # Cache sémantique (N3.3)
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 4.2 Filtrage & Sécurité (Guardrails AI Service) -> Reçoit d'OmniRoute, valide et transmet à LiteLLM N3.2
+      # 4.2 Filtrage & Sécurité (Guardrails AI) -> Reçoit d'OmniRoute, valide, puis transmet à LiteLLM
       guardrails-api = {
         image = "guardrails/guardrails:latest";
         ports = [ "8005:8000" ];
         environment = {
-          # Sortie filtrée vers LiteLLM Proxy (N3.2)
+          # MAILLAGE STRICT : Sortie post-validation vers LiteLLM Proxy (N3.2)
           OPENAI_API_BASE = "http://host.docker.internal:4000/v1";
           OPENAI_API_KEY = "sk-litellm-local-root-key";
+          
+          # Connexion Télémétrie (N5.4) pour tracer les rejets de prompts
+          LANGFUSE_HOST = "http://host.docker.internal:3001";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -689,32 +694,34 @@ in
     wants = [ "qdrant.service" "ollama.service" "docker-tei-embeddings.service" ];
   };
 
-  systemd.services."litellm" = {
-    after = [ 
-      "redis-llm-cache.service" 
-      "ollama.service" 
-      "mistralrs.service" 
-      "llama-cpp-server.service" 
-      "docker-tei-embeddings.service" 
-    ];
-    wants = [ 
-      "redis-llm-cache.service" 
-      "ollama.service" 
-      "mistralrs.service" 
-      "llama-cpp-server.service" 
-      "docker-tei-embeddings.service" 
-    ];
+  # La télémétrie et la base de données doivent être prêtes en premier
+  systemd.services."docker-langfuse-server" = {
+    after = [ "postgresql.service" "redis-llm-cache.service" ];
+    wants = [ "postgresql.service" "redis-llm-cache.service" ];
   };
 
-  # Ordre strict du triptyque de routage / sécurité
+  # LiteLLM dépend des backends N1 et de Langfuse
+  systemd.services."litellm" = {
+    after = [ 
+      "docker-langfuse-server.service"
+      "redis-llm-cache.service" 
+      "ollama.service" 
+      "mistralrs.service" 
+      "llama-cpp-server.service" 
+      "docker-tei-embeddings.service" 
+    ];
+    wants = [ "docker-langfuse-server.service" ];
+  };
+
+  # Tunnel de routage strict : LiteLLM <- Guardrails <- OmniRoute
   systemd.services."docker-guardrails-api" = {
     after = [ "litellm.service" ];
-    wants = [ "litellm.service" ];
+    requires = [ "litellm.service" ]; # Hard dependency
   };
 
   systemd.services."docker-omniroute" = {
-    after = [ "docker-guardrails-api.service" "litellm.service" ];
-    wants = [ "docker-guardrails-api.service" "litellm.service" ];
+    after = [ "docker-guardrails-api.service" "docker-langfuse-server.service" ];
+    requires = [ "docker-guardrails-api.service" ]; # Hard dependency
   };
 
   # Accès GPU pour le conteneur TEI
@@ -750,8 +757,4 @@ in
     wants = [ "docker-omniroute.service" "searx.service" "qdrant.service" "docker-mem0-service.service" ];
   };
 
-  systemd.services."docker-langfuse-server" = {
-    after = [ "postgresql.service" "redis-llm-cache.service" ];
-    wants = [ "postgresql.service" "redis-llm-cache.service" ];
-  };
 }
