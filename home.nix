@@ -14,7 +14,7 @@ let
       };
 
   #-----------------------------------------------IA------------------------------------------------
-  # 6.1 Dérivation personnalisée Nix pour Spider CLI via GitHub (contourne le 403 Crates.io)
+  # 6.1 Dérivation personnalisée Nix pour Spider CLI via GitHub
   spider-cli = pkgs.rustPlatform.buildRustPackage rec {
     pname = "spider_cli";
     version = "2.2.0";
@@ -23,10 +23,10 @@ let
       owner = "spider-rs";
       repo = "spider";
       rev = "v${version}";
-      hash = "sha256-1111111111111111111111111111111111111111111="; # Hash temporaire à mettre à jour
+      hash = pkgs.lib.fakeHash; # Calcul automatique au premier build
     };
 
-    cargoHash = "sha256-1111111111111111111111111111111111111111111="; # Hash temporaire à mettre à jour
+    cargoHash = pkgs.lib.fakeHash; # Calcul automatique au premier build
     buildAndCheckSubdir = "spider_cli";
 
     nativeBuildInputs = [ pkgs.pkg-config ];
@@ -88,17 +88,21 @@ in
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
     sessionVariables = {
-      # Routage Inférence LLM & Guardrails (N3.2, N4.2)
-      OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
+      # Routage Inférence via Façade OmniRoute N3.1 -> Guardrails N4.2 -> LiteLLM N3.2
+      OPENAI_API_BASE = "http://127.0.0.1:3000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
-      GUARDRAILS_API_BASE = "http://127.0.0.1:8005/v1";
       
-      # Redirection de la validation Guardrails vers la passerelle unifiée N3.2
-      GUARDRAILS_BASE_URL = "http://127.0.0.1:4000/v1";
+      # Validation Guardrails AI N4.2
+      GUARDRAILS_API_BASE = "http://127.0.0.1:8005/v1";
+      GUARDRAILS_BASE_URL = "http://127.0.0.1:3000/v1";
       GUARDRAILS_API_KEY = "sk-litellm-local-root-key";
 
-      # Interconnexion de RuFlo à LiteLLM (N3.2) et Langfuse (N5.4)
-      RUFLO_LLM_ENDPOINT = "http://127.0.0.1:4000/v1";
+      # Service de Mémoire Long Terme Mem0 N2.4
+      MEM0_HOST = "http://127.0.0.1:8081";
+      MEM0_API_URL = "http://127.0.0.1:8081";
+
+      # Interconnexion de RuFlo à la façade OmniRoute N3.1 et Langfuse N5.4
+      RUFLO_LLM_ENDPOINT = "http://127.0.0.1:3000/v1";
       RUFLO_TELEMETRY_HOST = "http://127.0.0.1:3001";
 
       # Observabilité LLMOps Névralgique (N5.4 Langfuse)
@@ -166,7 +170,7 @@ in
         postBuild = ''
           wrapProgram $out/bin/appflowy \
             --set AI_OPENAI_API_KEY "sk-litellm-local-root-key" \
-            --set AI_OPENAI_HOST "http://127.0.0.1:4000/v1" \
+            --set AI_OPENAI_HOST "http://127.0.0.1:3000/v1" \
             --set OLLAMA_HOST "http://127.0.0.1:11434"
         '';
       })
@@ -273,6 +277,10 @@ in
       spider = {
         command = "${pkgs.nodejs}/bin/npx";
         args = [ "-y" "@spider-rs/spider-mcp" ];
+      };
+      mem0 = {
+        command = "${pkgs.uv}/bin/uvx";
+        args = [ "mem0-mcp" "--mem0-url" "http://127.0.0.1:8081" ];
       };
     };
   };

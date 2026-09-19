@@ -4,21 +4,34 @@ let
   local = import ./local.nix;
 
   # =========================================================================
-  # CENTRALISATION DES PARAMÈTRES ET MAILLAGE RÉSEAU (N0, N1, N2)
+  # CENTRALISATION DES PARAMÈTRES ET MAILLAGE RÉSEAU (N0 ➔ N7)
   # =========================================================================
   cfg = {
     rocmGfx = "10.3.0"; # Version ROCm spoofée pour RDNA2/RDNA3
 
-    # Ports des services
+    # Table unifiée des ports
     ports = {
-      ollama    = 11434;
-      mistralrs = 1234;
-      llamacpp  = 8085;
-      qdrantHttp= 6333;
-      qdrantGrpc= 6334;
-      tei       = 8080;
-      mem0      = 8081;
-      n8n       = 5678;
+      ollama        = 11434;
+      mistralrs     = 1234;
+      llamacpp      = 8085;
+      qdrantHttp    = 6333;
+      qdrantGrpc    = 6334;
+      tei           = 8080;
+      mem0          = 8081;
+      redis         = 6379;
+      postgres      = 5432;
+      litellm       = 4000;
+      guardrails    = 8005;
+      omniroute     = 3000;
+      langfuse      = 3001;
+      searxng       = 8888;
+      perplexica    = 3005;
+      gptresearcher = 8000;
+      anythingllm   = 3002;
+      difyWeb       = 3003;
+      difyApi       = 5001;
+      openwebui     = 8082;
+      n8n           = 5678;
     };
 
     # Endpoints vus depuis l'hôte NixOS
@@ -29,13 +42,21 @@ let
       qdrant    = "http://127.0.0.1:6333";
       tei       = "http://127.0.0.1:8080/v1";
       mem0      = "http://127.0.0.1:8081";
+      omniroute = "http://127.0.0.1:3000/v1";
+      searxng   = "http://127.0.0.1:8888";
     };
 
-    # Endpoints vus depuis les conteneurs Docker (passerelle bridge)
+    # Endpoints vus depuis le réseau interne Docker bridge
     dockerEndpoints = {
-      ollama = "http://host.docker.internal:11434";
-      qdrant = "http://host.docker.internal:6333";
-      tei    = "http://host.docker.internal:8080/v1";
+      omniroute  = "http://host.docker.internal:3000/v1";
+      guardrails = "http://host.docker.internal:8005/v1";
+      litellm    = "http://host.docker.internal:4000/v1";
+      ollama     = "http://host.docker.internal:11434";
+      qdrant     = "http://host.docker.internal:6333";
+      tei        = "http://host.docker.internal:8080/v1";
+      searxng    = "http://host.docker.internal:8888";
+      mem0       = "http://host.docker.internal:8081";
+      langfuse   = "http://host.docker.internal:3001";
     };
   };
 in
@@ -294,7 +315,6 @@ in
         ports = [ "${toString cfg.ports.tei}:80" ];
         volumes = [
           "/var/lib/tei-embeddings:/data"
-          "/dev/dri:/dev/dri"
         ];
         environment = {
           HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
@@ -308,6 +328,7 @@ in
         ];
         extraOptions = [
           "--device=/dev/kfd"
+          "--device=/dev/dri"
           "--ipc=host"
         ];
       };
@@ -336,27 +357,28 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 3.1 Façade Utilisateur (OmniRoute)
+      # 3.1 Façade Utilisateur (OmniRoute) -> Intercepte les flux et envoie vers Guardrails AI N4.2
       omniroute = {
         image = "omniroute/omniroute:latest";
         ports = [ "3000:3000" ];
         environment = {
-          # Liaison N3.1 ➔ N3.2
+          # Liaison N3.1 ➔ N4.2 (Guardrails AI)
+          FORWARD_BASE_URL = "http://host.docker.internal:8005/v1";
           LITELLM_BASE_URL = "http://host.docker.internal:4000";
           LITELLM_API_KEY = "sk-litellm-local-root-key";
-          # Liaison N3.1 ➔ N5.4
+          # Liaison N3.1 ➔ N5.4 & N3.3
           LANGFUSE_HOST = "http://host.docker.internal:3001";
           REDIS_URL = "redis://host.docker.internal:6379";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 4.2 Filtrage & Sécurité (Guardrails AI Service)
+      # 4.2 Filtrage & Sécurité (Guardrails AI Service) -> Reçoit d'OmniRoute, valide et transmet à LiteLLM N3.2
       guardrails-api = {
         image = "guardrails/guardrails:latest";
         ports = [ "8005:8000" ];
         environment = {
-          # Restreint la sortie vers le proxy LiteLLM (N3.2)
+          # Sortie filtrée vers LiteLLM Proxy (N3.2)
           OPENAI_API_BASE = "http://host.docker.internal:4000/v1";
           OPENAI_API_KEY = "sk-litellm-local-root-key";
         };
@@ -379,36 +401,36 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 6.3 Perplexica (Search IA) - Interconnecté à SearXNG (N6.3), LiteLLM (N3.2) & TEI (N2.3)
+      # 6.3 Perplexica (Search IA) - Redirection sur OmniRoute N3.1
       perplexica-app = {
         image = "itshasbulla/perplexica:latest";
-        ports = [ "3005:3000" ];
+        ports = [ "${toString cfg.ports.perplexica}:3000" ];
         environment = {
-          SEARXNG_API_URL = "http://host.docker.internal:8888";
+          SEARXNG_API_URL = cfg.dockerEndpoints.searxng;
           OPENAI_API_KEY = "sk-litellm-local-root-key";
-          OPENAI_API_URL = "http://host.docker.internal:4000/v1";
-          EMBEDDING_API_URL = "http://host.docker.internal:8080/v1";
+          OPENAI_API_URL = cfg.dockerEndpoints.omniroute;
+          EMBEDDING_API_URL = cfg.dockerEndpoints.tei;
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 6.4 GPT Researcher
+      # 6.4 GPT Researcher - Redirection sur OmniRoute N3.1
       gpt-researcher = {
         image = "gptresearcher/gpt-researcher:latest";
-        ports = [ "8000:8000" ];
+        ports = [ "${toString cfg.ports.gptresearcher}:8000" ];
         environment = {
-          SEARXNG_BASE_URL = "http://host.docker.internal:8888";
-          OPENAI_BASE_URL = "http://host.docker.internal:4000/v1";
+          SEARXNG_BASE_URL = cfg.dockerEndpoints.searxng;
+          OPENAI_BASE_URL = cfg.dockerEndpoints.omniroute;
           OPENAI_API_KEY = "sk-litellm-local-root-key";
           FAST_LLM_MODEL = "openai/qwen-coder-fast";
           SMART_LLM_MODEL = "openai/ollama-general";
           EMBEDDING_PROVIDER = "custom";
-          CUSTOM_EMBEDDING_ENDPOINT = "http://host.docker.internal:8080/v1";
+          CUSTOM_EMBEDDING_ENDPOINT = cfg.dockerEndpoints.tei;
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 7.2 Workspace RAG Isolé (AnythingLLM) - Interconnecté à LiteLLM (N3.2), TEI (N2.3) & Qdrant (N2.1)
+      # 7.2 Workspace RAG Isolé (AnythingLLM) -> Redirigé sur OmniRoute (N3.1)
       anythingllm = {
         image = "mintplexlabs/anythingllm:latest";
         ports = [ "3002:3001" ];
@@ -419,11 +441,11 @@ in
           STORAGE_DIR = "/app/server/storage";
           DISABLE_TELEMETRY = "true";
 
-          # Inférence via LiteLLM (N3.2)
+          # Inférence via OmniRoute Façade (N3.1)
           LLM_PROVIDER = "openai";
           OPEN_AI_KEY = "sk-litellm-local-root-key";
           OPEN_AI_MODEL_PREF = "qwen-coder-fast";
-          OPENAI_BASE_PATH = "http://host.docker.internal:4000/v1";
+          OPENAI_BASE_PATH = "http://host.docker.internal:3000/v1";
 
           # Embeddings via TEI (N2.3)
           EMBEDDING_ENGINE = "openai";
@@ -448,29 +470,27 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 7.3 Plateforme de workflows d'agents (Dify API)
+      # 7.3 Plateforme de workflows d'agents (Dify API) -> Redirigé sur OmniRoute (N3.1) + Mem0 (N2.4)
       dify-api = {
         image = "langgenius/dify-api:latest";
         ports = [ "5001:5001" ];
         environment = {
-          # Liaison N5.4 (PostgreSQL base 'dify')
           DB_USERNAME = "dify";
           DB_PASSWORD = "";
           DB_DATABASE = "dify";
           DB_HOST = "host.docker.internal";
           DB_PORT = "5432";
 
-          # Liaison N3.3 (Redis)
           REDIS_HOST = "host.docker.internal";
           REDIS_PORT = "6379";
 
-          # Liaison N2.1 (Qdrant Vector Store)
           VECTOR_STORE = "qdrant";
           QDRANT_URL = "http://host.docker.internal:6333";
 
-          # Liaison N3.2 (LiteLLM Gateway)
-          OPENAI_API_BASE = "http://host.docker.internal:4000/v1";
+          # Liaison N3.1 (OmniRoute Façade) & N2.4 (Mem0)
+          OPENAI_API_BASE = "http://host.docker.internal:3000/v1";
           OPENAI_API_KEY = "sk-litellm-local-root-key";
+          MEM0_API_URL = "http://host.docker.internal:8081";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -624,9 +644,12 @@ in
       # Liaison N1.1 (Ollama direct pour fallback)
       OLLAMA_BASE_URL = cfg.endpoints.ollama;
 
-      # Liaison N3.2 (LiteLLM Proxy pour tous les modèles & TEI)
-      OPENAI_API_BASE_URL = "http://127.0.0.1:4000/v1";
+      # Liaison N3.1 (OmniRoute Façade unifiée pour tous les modèles & Guardrails)
+      OPENAI_API_BASE_URL = "http://127.0.0.1:3000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
+
+      # Liaison N2.4 (Mémoire Mem0)
+      MEM0_API_URL = "http://127.0.0.1:8081";
 
       # Liaison N6.3 (SearXNG Web Search RAG)
       ENABLE_RAG_WEB_SEARCH = "true";
@@ -641,9 +664,12 @@ in
     environment = {
       N8N_PORT = toString cfg.ports.n8n;
 
-      # Liaison N3.2 (LiteLLM)
-      OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
+      # Liaison N3.1 (OmniRoute Façade)
+      OPENAI_API_BASE = "http://127.0.0.1:3000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
+
+      # Liaison N2.4 (Mem0)
+      MEM0_URL = "http://127.0.0.1:8081";
 
       # Liaison N6.3 (SearXNG)
       SEARXNG_URL = "http://127.0.0.1:8888";
@@ -680,47 +706,50 @@ in
     ];
   };
 
+  # Ordre strict du triptyque de routage / sécurité
+  systemd.services."docker-guardrails-api" = {
+    after = [ "litellm.service" ];
+    wants = [ "litellm.service" ];
+  };
+
+  systemd.services."docker-omniroute" = {
+    after = [ "docker-guardrails-api.service" "litellm.service" ];
+    wants = [ "docker-guardrails-api.service" "litellm.service" ];
+  };
+
   # Accès GPU pour le conteneur TEI
   systemd.services."docker-tei-embeddings" = {
     after = [ "docker.service" ];
     wants = [ "docker.service" ];
   };
 
-  # Maillage des dépendances de démarrage N5 et N6
+  # Dépendances applicatives N6 & N7 sur la façade OmniRoute
   systemd.services."docker-perplexica-app" = {
-    after = [ "searx.service" "litellm.service" "docker-tei-embeddings.service" ];
-    wants = [ "searx.service" "litellm.service" "docker-tei-embeddings.service" ];
+    after = [ "docker-omniroute.service" "searx.service" "docker-tei-embeddings.service" ];
+    wants = [ "docker-omniroute.service" "searx.service" "docker-tei-embeddings.service" ];
   };
 
   systemd.services."docker-gpt-researcher" = {
-    after = [ "searx.service" "litellm.service" "docker-tei-embeddings.service" ];
-    wants = [ "searx.service" "litellm.service" "docker-tei-embeddings.service" ];
+    after = [ "docker-omniroute.service" "searx.service" "docker-tei-embeddings.service" ];
+    wants = [ "docker-omniroute.service" "searx.service" "docker-tei-embeddings.service" ];
   };
 
-  systemd.services."docker-guardrails-api" = {
-    after = [ "litellm.service" ];
-    wants = [ "litellm.service" ];
-  };
-
-  # Garantie que la DB dédiée et LiteLLM sont prêts avant Dify
   systemd.services."docker-dify-api" = {
     after = [ "postgresql.service" "redis-llm-cache.service" "qdrant.service" "litellm.service" ];
     wants = [ "postgresql.service" "redis-llm-cache.service" "qdrant.service" "litellm.service" ];
   };
 
-  # Garantie que LiteLLM et SearXNG sont prêts avant Open WebUI
+  # Open WebUI et n8n passent via OmniRoute (N3.1)
   systemd.services."open-webui" = {
-    after = [ "ollama.service" "litellm.service" "searx.service" ];
-    wants = [ "ollama.service" "litellm.service" "searx.service" ];
+    after = [ "docker-omniroute.service" "searx.service" "docker-mem0-service.service" ];
+    wants = [ "docker-omniroute.service" "searx.service" "docker-mem0-service.service" ];
   };
 
-  # Garantie de préparation des dépendances pour n8n
   systemd.services."n8n" = {
-    after = [ "litellm.service" "searx.service" "qdrant.service" ];
-    wants = [ "litellm.service" "searx.service" "qdrant.service" ];
+    after = [ "docker-omniroute.service" "searx.service" "qdrant.service" "docker-mem0-service.service" ];
+    wants = [ "docker-omniroute.service" "searx.service" "qdrant.service" "docker-mem0-service.service" ];
   };
 
-  # Langfuse attend Postgres et Redis
   systemd.services."docker-langfuse-server" = {
     after = [ "postgresql.service" "redis-llm-cache.service" ];
     wants = [ "postgresql.service" "redis-llm-cache.service" ];
