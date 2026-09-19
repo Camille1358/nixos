@@ -14,17 +14,20 @@ let
       };
 
   #-----------------------------------------------IA------------------------------------------------
-  # 6.1 Dérivation personnalisée Nix pour Spider CLI depuis Crates.io
+  # 6.1 Dérivation personnalisée Nix pour Spider CLI via GitHub (contourne le 403 Crates.io)
   spider-cli = pkgs.rustPlatform.buildRustPackage rec {
     pname = "spider_cli";
     version = "2.2.0";
 
-    src = pkgs.fetchCrate {
-      inherit pname version;
-      hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Temporaire pour obtenir le vrai hash
+    src = pkgs.fetchFromGitHub {
+      owner = "spider-rs";
+      repo = "spider";
+      rev = "v${version}";
+      hash = "sha256-1111111111111111111111111111111111111111111="; # Hash temporaire à mettre à jour
     };
 
-    cargoHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    cargoHash = "sha256-1111111111111111111111111111111111111111111="; # Hash temporaire à mettre à jour
+    buildAndCheckSubdir = "spider_cli";
 
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildInputs = [ pkgs.openssl ];
@@ -85,14 +88,21 @@ in
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
     sessionVariables = {
-      # Routage par défaut des CLI via LiteLLM (N3.2)
+      # Routage Inférence LLM & Guardrails (N3.2, N4.2)
       OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
-      
-      # Routage filtré optionnel via Guardrails AI (N4.2)
       GUARDRAILS_API_BASE = "http://127.0.0.1:8005/v1";
-      
-      # Configuration du runtime RuFlo (N4.3)
+
+      # Observabilité LLMOps Névralgique (N5.4 Langfuse)
+      LANGFUSE_HOST = "http://127.0.0.1:3001";
+      LANGFUSE_PUBLIC_KEY = "pk-lf-local-key";
+      LANGFUSE_SECRET_KEY = "sk-lf-local-key";
+
+      # Endpoints d'Ingestion & Moteurs de Recherche (N2.1, N6.3)
+      SEARXNG_URL = "http://127.0.0.1:8888";
+      QDRANT_URL = "http://127.0.0.1:6333";
+
+      # Configuration Runtime RuFlo (N4.3)
       RUFLO_WORKTREE_ROOT = "/var/lib/ruflo/worktrees";
       RUFLO_DEFAULT_MODEL = "qwen-coder-fast";
     };
@@ -238,6 +248,24 @@ in
           min-width: 0px !important;
         }
       '';
+    };
+  };
+
+  # 5.1 Protocole MCP - Serveur Spider délégué au runtime dynamique
+  home.file.".config/opencode/mcp_servers.json".text = builtins.toJSON {
+    mcpServers = {
+      searxng = {
+        command = "${pkgs.uv}/bin/uvx";
+        args = [ "mcp-server-searxng" "--searxng-url" "http://127.0.0.1:8888" ];
+      };
+      qdrant = {
+        command = "${pkgs.uv}/bin/uvx";
+        args = [ "mcp-server-qdrant" "--qdrant-url" "http://127.0.0.1:6333" ];
+      };
+      spider = {
+        command = "${pkgs.nodejs}/bin/npx";
+        args = [ "-y" "@spider-rs/spider-mcp" ];
+      };
     };
   };
 

@@ -354,13 +354,15 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-    # 6.3 Perplexica (Search IA) - Port réattribué à 3005
+    # 6.3 Perplexica (Search IA) - Interconnecté à SearXNG (N6.3), LiteLLM (N3.2) & TEI (N2.3)
       perplexica-app = {
         image = "itshasbulla/perplexica:latest";
         ports = [ "3005:3000" ];
         environment = {
           SEARXNG_API_URL = "http://host.docker.internal:8888";
-          OLLAMA_API_URL = "http://host.docker.internal:11434";
+          OPENAI_API_KEY = "sk-litellm-local-root-key";
+          OPENAI_API_URL = "http://host.docker.internal:4000/v1";
+          EMBEDDING_API_URL = "http://host.docker.internal:8080/v1";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -371,10 +373,12 @@ in
         ports = [ "8000:8000" ];
         environment = {
           SEARXNG_BASE_URL = "http://host.docker.internal:8888";
-          OPENAI_BASE_URL = "http://host.docker.internal:11434/v1";
-          OPENAI_API_KEY = "ollama";
-          FAST_LLM_MODEL = "openai/qwen2.5-coder";
-          SMART_LLM_MODEL = "openai/qwen2.5-coder";
+          OPENAI_BASE_URL = "http://host.docker.internal:4000/v1";
+          OPENAI_API_KEY = "sk-litellm-local-root-key";
+          FAST_LLM_MODEL = "openai/qwen-coder-fast";
+          SMART_LLM_MODEL = "openai/ollama-general";
+          EMBEDDING_PROVIDER = "custom";
+          CUSTOM_EMBEDDING_ENDPOINT = "http://host.docker.internal:8080/v1";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -390,6 +394,12 @@ in
           SALT = "salt_de_dev_a_changer_123456789";
           TELEMETRY_ENABLED = "false";
           ENCRYPTION_KEY = "0000000000000000000000000000000000000000000000000000000000000000";
+          
+          # Initialisation automatique des clés pour le maillage des SDK (N5.3, N6.5)
+          LANGFUSE_INIT_ORG_ID = "default";
+          LANGFUSE_INIT_PROJECT_ID = "main";
+          LANGFUSE_INIT_PROJECT_PUBLIC_KEY = "pk-lf-local-key";
+          LANGFUSE_INIT_PROJECT_SECRET_KEY = "sk-lf-local-key";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -605,5 +615,21 @@ in
   systemd.services."docker-tei-embeddings" = {
     after = [ "docker.service" ];
     wants = [ "docker.service" ];
+  };
+
+  # Maillage des dépendances de démarrage N5 et N6
+  systemd.services."docker-perplexica-app" = {
+    after = [ "searx.service" "litellm.service" "docker-tei-embeddings.service" ];
+    wants = [ "searx.service" "litellm.service" "docker-tei-embeddings.service" ];
+  };
+
+  systemd.services."docker-gpt-researcher" = {
+    after = [ "searx.service" "litellm.service" "docker-tei-embeddings.service" ];
+    wants = [ "searx.service" "litellm.service" "docker-tei-embeddings.service" ];
+  };
+
+  systemd.services."docker-langfuse-server" = {
+    after = [ "postgresql.service" ];
+    wants = [ "postgresql.service" ];
   };
 }
