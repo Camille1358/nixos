@@ -649,19 +649,37 @@ in
   # =========================================================================
 
   # S'assure que Mem0 démarre uniquement lorsque Qdrant, Ollama et TEI sont fonctionnels
+  # Mem0 Memory Service
   systemd.services.mem0-service = {
     description = "Mem0 Memory Service";
-    after = [ "network.target" "qdrant.service" ];
+    after = [ "network.target" "qdrant.service" "litellm.service" ];
+    wants = [ "qdrant.service" "litellm.service" ];
     wantedBy = [ "multi-user.target" ];
+    path = [ 
+      pkgs.python3 
+      pkgs.git 
+      pkgs.gcc 
+      pkgs.bash 
+      pkgs.stdenv.cc.cc 
+      pkgs.cacert 
+      pkgs.uv 
+    ];
     environment = {
       QDRANT_HOST = "127.0.0.1";
       QDRANT_PORT = "6333";
+      OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
+      OPENAI_API_KEY = "sk-litellm-local-root-key";
+      UV_PYTHON = "${pkgs.python3}/bin/python";
       UV_CACHE_DIR = "/var/lib/mem0-service/.cache/uv";
+      HOME = "/var/lib/mem0-service";
+      SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+      LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib:${pkgs.zlib}/lib";
     };
     serviceConfig = {
       StateDirectory = "mem0-service";
-      ExecStart = "${pkgs.uv}/bin/uvx --from mem0ai mem0 server --port 8081";
+      ExecStart = "${pkgs.uv}/bin/uv run --with git+https://github.com/mem0ai/mem0.git --with uvicorn --with fastapi uvicorn mem0.server.main:app --host 0.0.0.0 --port 8081";
       Restart = "on-failure";
+      RestartSec = "5s";
     };
   };
 
@@ -723,19 +741,34 @@ in
     wants = [ "docker-omniroute.service" "searx.service" "qdrant.service" "mem0-service.service" ];
   };
 
+  # Guardrails AI Server
   systemd.services.guardrails-api = {
     description = "Guardrails AI Server";
     after = [ "network.target" "litellm.service" ];
     wantedBy = [ "multi-user.target" ];
+    path = [ 
+      pkgs.python3 
+      pkgs.git 
+      pkgs.gcc 
+      pkgs.bash 
+      pkgs.cacert 
+      pkgs.uv 
+    ];
     environment = {
       OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
+      GUARDRAILS_TELEMETRY = "0";
+      UV_PYTHON = "${pkgs.python3}/bin/python";
       UV_CACHE_DIR = "/var/lib/guardrails-api/.cache/uv";
+      HOME = "/var/lib/guardrails-api";
+      SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+      LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib:${pkgs.zlib}/lib";
     };
     serviceConfig = {
       StateDirectory = "guardrails-api";
       ExecStart = "${pkgs.uv}/bin/uvx --from guardrails-ai guardrails start --port 8005";
       Restart = "on-failure";
+      RestartSec = "5s";
     };
   };
 }
