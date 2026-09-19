@@ -84,6 +84,18 @@ in
   home = {
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
+    sessionVariables = {
+      # Routage par défaut des CLI via LiteLLM (N3.2)
+      OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
+      OPENAI_API_KEY = "sk-litellm-local-root-key";
+      
+      # Routage filtré optionnel via Guardrails AI (N4.2)
+      GUARDRAILS_API_BASE = "http://127.0.0.1:8005/v1";
+      
+      # Configuration du runtime RuFlo (N4.3)
+      RUFLO_WORKTREE_ROOT = "/var/lib/ruflo/worktrees";
+      RUFLO_DEFAULT_MODEL = "qwen-coder-fast";
+    };
     packages = with pkgs; [
       # Paquets installés uniquement pour la session utilisateur
       #-----------------------------------------------APPs------------------------------------------------
@@ -117,7 +129,6 @@ in
       mangohud
       #---------------------------------------------------------------------------------------------------
       #-------------------------------------------------IA------------------------------------------------
-      appflowy
       opencode
       docker-compose
       llama-cpp-rocm
@@ -129,6 +140,18 @@ in
       cargo
       rustc
       uv # Executera instantanément Guardrails AI, MCP et RuFlo via virtualenv légers
+
+      (pkgs.symlinkJoin {
+        name = "appflowy-wrapped";
+        paths = [ pkgs.appflowy ];
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+        postBuild = ''
+          wrapProgram $out/bin/appflowy \
+            --set AI_OPENAI_API_KEY "sk-litellm-local-root-key" \
+            --set AI_OPENAI_HOST "http://127.0.0.1:4000/v1" \
+            --set OLLAMA_HOST "http://127.0.0.1:11434"
+        '';
+      })
 
       #-------------------------------------------
       (python3.withPackages (

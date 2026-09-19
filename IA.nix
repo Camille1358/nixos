@@ -109,6 +109,12 @@ in
     "d /var/lib/llama-cpp 0770 root root - -"
     "d /var/lib/mistralrs 0770 root root - -"
     "d /var/lib/qdrant 0750 qdrant qdrant - -"
+    # 1.4 Stockage Axolotl
+    "d /var/lib/axolotl 0775 root root - -"
+    "d /var/lib/axolotl/configs 0775 root root - -"
+    "d /var/lib/axolotl/data 0775 root root - -"
+    "d /var/lib/axolotl/outputs 0775 root root - -"
+    "d /var/lib/axolotl/hf-cache 0775 root root - -"
   ];
 
   # =========================================================================
@@ -255,10 +261,37 @@ in
   virtualisation.oci-containers = {
     backend = "docker";
     containers = {
-      # 2.3 Embeddings & Rerank (HuggingFace TEI - Interconnecté à N0 GPU)
+
+    # 1.4 Fine-Tuning Sans-Code (Axolotl ROCm - Interconnecté à N0 GPU)
+      axolotl = {
+        image = "winglian/axolotl:main-rocm6.0-py3.10";
+        volumes = [
+          "/var/lib/axolotl/configs:/workspace/configs"
+          "/var/lib/axolotl/data:/workspace/data"
+          "/var/lib/axolotl/outputs:/workspace/outputs"
+          "/var/lib/axolotl/hf-cache:/root/.cache/huggingface"
+        ];
+        environment = {
+          HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
+          HSA_ENABLE_SDMA = "0";
+          HIP_VISIBLE_DEVICES = "0";
+          PYTORCH_ROCM_ALLOC_CONF = "max_split_size_mb:512";
+        };
+        extraOptions = [
+          "--device=/dev/kfd"
+          "--device=/dev/dri"
+          "--ipc=host"
+          "--shm-size=16g"
+        ];
+      };
+
+    # 2.3 Embeddings & Rerank (HuggingFace TEI - Interconnecté à N0 GPU)
       tei-embeddings = {
         image = "ghcr.io/huggingface/text-embeddings-inference:rocm-1.6";
         ports = [ "${toString cfg.ports.tei}:80" ];
+        environment = {
+          HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx; # <--- À AJOUTER
+        };
         cmd = [
           "--model-id" "BAAI/bge-large-en-v1.5"
           "--port" "80"
@@ -273,7 +306,7 @@ in
         ];
       };
 
-      # 2.4 Service de Mémoire Long Terme (Mem0 - Interconnecté à N1, N2.1, N2.3)
+    # 2.4 Service de Mémoire Long Terme (Mem0 - Interconnecté à N1, N2.1, N2.3)
       mem0-service = {
         image = "mem0/mem0:latest";
         ports = [ "${toString cfg.ports.mem0}:8000" ];
@@ -295,17 +328,33 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 3.1 Façade Utilisateur (OmniRoute) - Port 3000
+    # 3.1 Façade Utilisateur (OmniRoute)
       omniroute = {
         image = "omniroute/omniroute:latest";
         ports = [ "3000:3000" ];
         environment = {
+          # Liaison N3.1 ➔ N3.2
           LITELLM_BASE_URL = "http://host.docker.internal:4000";
+          LITELLM_API_KEY = "sk-litellm-local-root-key";
+          # Liaison N3.1 ➔ N5.4
+          LANGFUSE_HOST = "http://host.docker.internal:3001";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 6.3 Perplexica (Search IA) - Port réattribué à 3005
+    # 4.2 Filtrage & Sécurité (Guardrails AI Service)
+      guardrails-api = {
+        image = "guardrails/guardrails:latest";
+        ports = [ "8005:8000" ];
+        environment = {
+          # Restreint la sortie vers le proxy LiteLLM (N3.2)
+          OPENAI_API_BASE = "http://host.docker.internal:4000/v1";
+          OPENAI_API_KEY = "sk-litellm-local-root-key";
+        };
+        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+      };
+
+    # 6.3 Perplexica (Search IA) - Port réattribué à 3005
       perplexica-app = {
         image = "itshasbulla/perplexica:latest";
         ports = [ "3005:3000" ];
@@ -316,7 +365,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 6.4 GPT Researcher
+    # 6.4 GPT Researcher
       gpt-researcher = {
         image = "gptresearcher/gpt-researcher:latest";
         ports = [ "8000:8000" ];
@@ -330,7 +379,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 5.4 Observabilité LLMOps (Langfuse Server) - Port 3001
+    # 5.4 Observabilité LLMOps (Langfuse Server) - Port 3001
       langfuse-server = {
         image = "langfuse/langfuse:2";
         ports = [ "3001:3000" ];
@@ -345,7 +394,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 7.2 Workspace RAG Isolé (AnythingLLM) - Port 3002
+    # 7.2 Workspace RAG Isolé (AnythingLLM) - Port 3002
       anythingllm = {
         image = "mintplexlabs/anythingllm:latest";
         ports = [ "3002:3001" ];
@@ -358,7 +407,7 @@ in
         };
       };
 
-      # 7.3 Studio Visuel d'Agents (Dify Web) - Port 3003
+    # 7.3 Studio Visuel d'Agents (Dify Web) - Port 3003
       dify-web = {
         image = "langgenius/dify-web:latest";
         ports = [ "3003:3000" ];
@@ -368,7 +417,7 @@ in
         };
       };
 
-      # 7.3 Studio Visuel d'Agents (Dify API) - Port 5001
+    # 7.3 Studio Visuel d'Agents (Dify API) - Port 5001
       dify-api = {
         image = "langgenius/dify-api:latest";
         ports = [ "5001:5001" ];
@@ -384,7 +433,7 @@ in
   # NIVEAU 3 : ROUTAGE HYBRIDE, PASSERELLE DOUBLE-COUCHE & CASCHING SÉMANTIQUE
   # =========================================================================
 
-  # 3.2 Proxy Backend Backend (LiteLLM)
+  # 3.2 Proxy Backend (LiteLLM) - Centralisation & Routage
   services.litellm = {
     enable = true;
     host = "0.0.0.0";
@@ -400,6 +449,12 @@ in
         set_verbose = false;
         request_timeout = 600;
         num_retries = 3;
+        
+        # Interconnection N3.2 ➔ N5.4 (Observabilité Langfuse)
+        success_callbacks = [ "langfuse" ];
+        failure_callbacks = [ "langfuse" ];
+        
+        # Interconnection N3.2 ➔ N3.3 (Cache Sémantique Redis)
         cache = true;
         cache_params = {
           type = "redis";
@@ -409,32 +464,43 @@ in
           supported_call_types = [ "completion" "embeddings" ];
         };
       };
+      
+      # Table de routage unifiée (N1.1, N1.2, N1.3, N2.3)
       model_list = [
-        # Routage vers mistral.rs (1.2)
+        # N1.2 mistral.rs (Inférence ultra-rapide)
         {
-          model_name = "qwen-coder";
+          model_name = "qwen-coder-fast";
           litellm_params = {
             model = "openai/Qwen/Qwen2.5-Coder-7B-Instruct";
-            api_base = "http://127.0.0.1:1234/v1";
+            api_base = cfg.endpoints.mistralrs;
             api_key = "none";
-            timeout = 300;
           };
         }
-        # Routage vers Ollama ROCm (1.1)
+        # N1.1 Ollama ROCm (Modèle général & raisonnement)
         {
           model_name = "ollama-general";
           litellm_params = {
             model = "ollama/qwen2.5-coder:14b";
-            api_base = "http://127.0.0.1:11434";
+            api_base = cfg.endpoints.ollama;
             stream = true;
           };
         }
-        # Routage vers TEI Embeddings (2.3)
+        # N1.3 llama.cpp (GGUF / Grammaires GBNF N4.1)
+        {
+          model_name = "qwen-gguf";
+          litellm_params = {
+            model = "openai/qwen-1.5b";
+            api_base = cfg.endpoints.llamacpp;
+            api_key = "none";
+          };
+        }
+        # N2.3 TEI (Embeddings locaux)
         {
           model_name = "bge-embeddings";
           litellm_params = {
             model = "openai/BAAI/bge-large-en-v1.5";
-            api_base = "http://127.0.0.1:8080/v1";
+            api_base = cfg.endpoints.tei;
+            api_key = "none";
           };
         }
       ];
