@@ -650,6 +650,7 @@ in
 
   # S'assure que Mem0 démarre uniquement lorsque Qdrant, Ollama et TEI sont fonctionnels
   # Mem0 Memory Service
+  # Mem0 Memory Service
   systemd.services.mem0-service = {
     description = "Mem0 Memory Service";
     after = [ "network.target" "qdrant.service" "litellm.service" ];
@@ -663,6 +664,8 @@ in
       pkgs.stdenv.cc.cc 
       pkgs.cacert 
       pkgs.uv 
+      pkgs.zlib
+      pkgs.openssl
     ];
     environment = {
       QDRANT_HOST = "127.0.0.1";
@@ -673,11 +676,11 @@ in
       UV_CACHE_DIR = "/var/lib/mem0-service/.cache/uv";
       HOME = "/var/lib/mem0-service";
       SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-      LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib:${pkgs.zlib}/lib";
+      LD_LIBRARY_PATH = "${lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib pkgs.openssl pkgs.glibc ]}";
     };
     serviceConfig = {
       StateDirectory = "mem0-service";
-      ExecStart = "${pkgs.uv}/bin/uv run --with git+https://github.com/mem0ai/mem0.git --with uvicorn --with fastapi uvicorn mem0.server.main:app --host 0.0.0.0 --port 8081";
+      ExecStart = "${pkgs.uv}/bin/uvx --with \"mem0ai[server]\" uvicorn mem0.server.main:app --host 0.0.0.0 --port 8081";
       Restart = "on-failure";
       RestartSec = "5s";
     };
@@ -743,30 +746,38 @@ in
 
   # Guardrails AI Server
   systemd.services.guardrails-api = {
-    description = "Guardrails AI Server";
-    after = [ "network.target" "litellm.service" ];
+    description = "Guardrails AI Service";
+    after = [ "network.target" ];
     wantedBy = [ "multi-user.target" ];
     path = [ 
       pkgs.python3 
       pkgs.git 
       pkgs.gcc 
       pkgs.bash 
+      pkgs.stdenv.cc.cc 
       pkgs.cacert 
       pkgs.uv 
+      pkgs.zlib
+      pkgs.openssl
     ];
     environment = {
-      OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
-      OPENAI_API_KEY = "sk-litellm-local-root-key";
-      GUARDRAILS_TELEMETRY = "0";
+      HOME = "/var/lib/guardrails-api";
+      GUARDRAILS_TELEMETRY = "false";
+      OTEL_SDK_DISABLED = "true";
       UV_PYTHON = "${pkgs.python3}/bin/python";
       UV_CACHE_DIR = "/var/lib/guardrails-api/.cache/uv";
-      HOME = "/var/lib/guardrails-api";
       SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-      LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib:${pkgs.zlib}/lib";
+      LD_LIBRARY_PATH = "${lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib pkgs.openssl pkgs.glibc ]}";
     };
     serviceConfig = {
       StateDirectory = "guardrails-api";
-      ExecStart = "${pkgs.uv}/bin/uvx --from guardrails-ai guardrails start --port 8005";
+      ExecStartPre = "${pkgs.writeShellScript "init-guardrails-config" ''
+        if [ ! -f /var/lib/guardrails-api/config.py ]; then
+          echo 'from guardrails import Guard' > /var/lib/guardrails-api/config.py
+          echo 'guard = Guard()' >> /var/lib/guardrails-api/config.py
+        fi
+      ''}";
+      ExecStart = "${pkgs.uv}/bin/uvx --from guardrails-ai guardrails start --port 8005 --config /var/lib/guardrails-api/config.py";
       Restart = "on-failure";
       RestartSec = "5s";
     };
