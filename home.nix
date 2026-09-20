@@ -78,6 +78,10 @@ let
     ];
   };
   #-------------------------------------------------------------------------------------------------
+  # Import de spicetify-nix pour spotify
+  spicetify-nix = (import (builtins.fetchTarball "https://github.com/edolstra/flake-compat/archive/master.tar.gz") {
+    src = builtins.fetchTarball "https://github.com/Gerg-L/spicetify-nix/archive/master.tar.gz";
+  }).defaultNix;
 in
 
 {
@@ -127,7 +131,6 @@ in
       #-----------------------------------------------APPs------------------------------------------------
       vlc
       vscode
-      spotify
       unzip
       keepassxc
       obs-studio
@@ -219,6 +222,32 @@ in
       })
     ];
   };
+
+  imports = [
+    spicetify-nix.homeManagerModules.default
+  ];
+
+  programs.spicetify = let
+    spicePkgs = spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
+  in {
+    enable = true;
+    theme = spicePkgs.themes.dreary;
+
+    # Extensions actives
+    enabledExtensions = with spicePkgs.extensions; [
+      hidePodcasts
+      shuffle
+      beautifulLyrics
+      bookmark
+      volumePercentage
+    ];
+
+    # Active l'onglet Marketplace dans Spotify
+    enabledCustomApps = with spicePkgs.apps; [
+      marketplace
+    ];
+  };
+
 
   # Configuration directe des logiciels
   programs.git = {

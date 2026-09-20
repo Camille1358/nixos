@@ -308,8 +308,7 @@ in
         };
         extraOptions = [
           "--device=/dev/kfd"
-          "--device=/dev/dri/renderD128"
-          "--device=/dev/dri/card1"
+          "--device=/dev/dri"
           "--ipc=host"
           "--shm-size=16g"
         ];
@@ -366,13 +365,12 @@ in
 
       # 6.3 Perplexica (Search IA)
       perplexica-app = {
-        image = "itshasbulla/perplexica:latest";
+        image = "itshasbulla/perplexica-backend:latest";
         ports = [ "${toString cfg.ports.perplexica}:3000" ];
         environment = {
           SEARXNG_API_URL = cfg.dockerEndpoints.searxng;
           OPENAI_API_KEY = "sk-litellm-local-root-key";
           OPENAI_API_URL = cfg.dockerEndpoints.omniroute;
-          # MAILLAGE CORRIGÉ : Rapatriement de l'URL d'embedding sur la façade
           EMBEDDING_API_URL = cfg.dockerEndpoints.omniroute;
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
@@ -650,7 +648,6 @@ in
 
   # S'assure que Mem0 démarre uniquement lorsque Qdrant, Ollama et TEI sont fonctionnels
   # Mem0 Memory Service
-  # Mem0 Memory Service
   systemd.services.mem0-service = {
     description = "Mem0 Memory Service";
     after = [ "network.target" "qdrant.service" "litellm.service" ];
@@ -666,24 +663,41 @@ in
       pkgs.uv 
       pkgs.zlib
       pkgs.openssl
+      pkgs.pkg-config
     ];
     environment = {
       QDRANT_HOST = "127.0.0.1";
       QDRANT_PORT = "6333";
       OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
-      UV_PYTHON = "${pkgs.python3}/bin/python";
       UV_CACHE_DIR = "/var/lib/mem0-service/.cache/uv";
       HOME = "/var/lib/mem0-service";
       SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       LD_LIBRARY_PATH = "${lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib pkgs.openssl pkgs.glibc ]}";
+      PYTHONPATH = "/var/lib/mem0-service/mem0";
     };
     serviceConfig = {
       StateDirectory = "mem0-service";
-      ExecStart = "${pkgs.uv}/bin/uvx --with \"mem0ai[server]\" uvicorn mem0.server.main:app --host 0.0.0.0 --port 8081";
+      WorkingDirectory = "/var/lib/mem0-service";
+      ExecStartPre = pkgs.writeShellScript "init-mem0-repo" ''
+        if [ ! -d /var/lib/mem0-service/mem0 ]; then
+          ${pkgs.git}/bin/git clone https://github.com/mem0ai/mem0.git /var/lib/mem0-service/mem0
+        else
+          cd /var/lib/mem0-service/mem0 && ${pkgs.git}/bin/git pull origin main
+        fi
+      '';
       Restart = "on-failure";
       RestartSec = "5s";
     };
+    script = ''
+      cd /var/lib/mem0-service/mem0
+      ${pkgs.uv}/bin/uv venv --python ${pkgs.python3}/bin/python .venv --allow-existing
+      export VIRTUAL_ENV="/var/lib/mem0-service/mem0/.venv"
+      export PATH="$VIRTUAL_ENV/bin:$PATH"
+      ${pkgs.uv}/bin/uv pip install --python .venv --upgrade pip setuptools wheel
+      ${pkgs.uv}/bin/uv pip install --python .venv -e ".[server]" fastapi uvicorn
+      exec $VIRTUAL_ENV/bin/uvicorn mem0.server.main:app --host 0.0.0.0 --port 8081
+    '';
   };
 
   # La télémétrie et la base de données doivent être prêtes en premier
