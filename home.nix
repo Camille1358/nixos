@@ -26,7 +26,8 @@ let
       hash = "sha256-b4JLe0STxPR1Y0y0lpGm3sH9ehXDHhxl36cq/5Lw0NQ=";
     };
 
-    cargoHash = pkgs.lib.fakeHash; # Sera réclamé au prochain build
+    # Remplacement de pkgs.lib.fakeHash par le hash réel pour autoriser le build
+    cargoHash = "sha256-93b520deb0ebadeb578d7fca8e842183277df5a59792aee78315d9945cbbb859="; 
     buildAndCheckSubdir = "spider_cli";
 
     nativeBuildInputs = [ pkgs.pkg-config ];
@@ -106,13 +107,13 @@ in
       GUARDRAILS_API_BASE = "http://127.0.0.1:8005/v1";
       
       # Mémoire Long Terme Globale (N2.4)
-      MEM0_HOST = "http://127.0.0.1:8081";
-      MEM0_API_URL = "http://127.0.0.1:8081";
+      COGNEE_HOST = "http://127.0.0.1:8000";
+      COGNEE_API_URL = "http://127.0.0.1:8000";
 
       # Observabilité LLMOps Névralgique (N5.4 Langfuse)
       LANGFUSE_HOST = "http://127.0.0.1:3001";
-      LANGFUSE_PUBLIC_KEY = "pk-lf-local-key";
-      LANGFUSE_SECRET_KEY = "sk-lf-local-key";
+      LANGFUSE_PUBLIC_KEY = "pk-lf-9c4a87fb-c5cf-4959-860a-bde8e3cd5b90";
+      LANGFUSE_SECRET_KEY = "sk-lf-3a04243c-ee3d-457e-92e2-3664073ad3f2";
 
       # Endpoints d'Ingestion & Moteurs de Recherche (N2.1, N6.3)
       SEARXNG_URL = "http://127.0.0.1:8888";

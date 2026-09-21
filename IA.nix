@@ -33,7 +33,7 @@ let
       langfuse      = 3001;
       searxng       = 8888;
       perplexica    = 3005;
-      gptresearcher = 8000;
+      gptresearcher = 8006;
       anythingllm   = 3002;
       difyWeb       = 3003;
       difyApi       = 5001;
@@ -69,6 +69,33 @@ let
 in
 
 {
+  # OUVERTURE EFFECTIVE DU PARE-FEU NIXOS
+  networking.firewall = {
+    enable = true;
+    allowedTCPPorts = [ 
+      cfg.ports.omniroute 
+      cfg.ports.litellm 
+      cfg.ports.postgres 
+      cfg.ports.n8n 
+      cfg.ports.qdrantHttp 
+      cfg.ports.redis 
+      cfg.ports.cognee 
+      cfg.ports.guardrails 
+      cfg.ports.tei 
+      cfg.ports.openwebui 
+      cfg.ports.searxng 
+      cfg.ports.ollama 
+      cfg.ports.mistralrs 
+      cfg.ports.langfuse 
+      cfg.ports.anythingllm 
+      cfg.ports.perplexica 
+      cfg.ports.gptresearcher 
+      cfg.ports.difyWeb 
+      cfg.ports.difyApi 
+    ];
+    trustedInterfaces = [ "docker0" ];
+  };
+
   # =========================================================================
   # PAQUETS SYSTÈME GÉNÉRAUX & OUTILS CLI IA
   # =========================================================================
@@ -144,6 +171,13 @@ in
     "d /var/lib/axolotl/data 0775 root root - -"
     "d /var/lib/axolotl/outputs 0775 root root - -"
     "d /var/lib/axolotl/hf-cache 0775 root root - -"
+    # Chemins de persistance Docker :
+    "d /var/lib/omniroute 0775 root root - -"
+    "d /var/lib/langfuse 0775 root root - -"
+    "d /var/lib/dify 0775 root root - -"
+    "d /var/lib/anythingllm 0775 root root - -"
+    "d /var/lib/perplexica 0775 root root - -"
+    "d /etc/perplexica 0755 root root - -"
   ];
 
   # =========================================================================
@@ -333,6 +367,7 @@ in
       omniroute = {
         image = "diegosouzapw/omniroute:latest";
         ports = [ "3000:20128" ];
+        volumes = [ "/var/lib/omniroute:/app/data" ];
         environment = {
           # MAILLAGE STRICT : Transfert vers Guardrails (N4.2) et non LiteLLM
           FORWARD_BASE_URL = "http://host.docker.internal:8005/v1"; 
@@ -351,6 +386,7 @@ in
       langfuse-server = {
         image = "langfuse/langfuse:2";
         ports = [ "3001:3000" ];
+        volumes = [ "/var/lib/langfuse:/app/uploads" ];
         environment = {
           NODE_ENV = "production";
           DATABASE_URL = "postgresql://langfuse:langfuse@host.docker.internal:5432/langfuse";
@@ -367,6 +403,10 @@ in
       perplexica-app = {
         image = "itshasbulla/perplexica-backend:latest";
         ports = [ "${toString cfg.ports.perplexica}:3000" ];
+        volumes = [
+          "/etc/perplexica/config.toml:/usr/src/app/config.toml"
+          "/var/lib/perplexica:/usr/src/app/data"
+        ];
         environment = {
           SEARXNG_API_URL = cfg.dockerEndpoints.searxng;
           OPENAI_API_KEY = "sk-litellm-local-root-key";
@@ -435,6 +475,7 @@ in
       dify-api = {
         image = "langgenius/dify-api:latest";
         ports = [ "5001:5001" ];
+        volumes = [ "/var/lib/dify:/app/api/storage" ];
         environment = {
           DB_USERNAME = "dify";
           DB_PASSWORD = "";
@@ -471,8 +512,8 @@ in
     # Injection des clés systemd pour la liaison N3.2 ➔ N5.4 (Langfuse)
     environment = {
       LANGFUSE_HOST = "http://127.0.0.1:3001";
-      LANGFUSE_PUBLIC_KEY = "pk-lf-local-key";
-      LANGFUSE_SECRET_KEY = "sk-lf-local-key";
+      LANGFUSE_PUBLIC_KEY = "pk-lf-9c4a87fb-c5cf-4959-860a-bde8e3cd5b90";
+      LANGFUSE_SECRET_KEY = "sk-lf-3a04243c-ee3d-457e-92e2-3664073ad3f2";
     };
 
     settings = {
@@ -564,6 +605,7 @@ in
       { name = "langfuse"; ensureDBOwnership = true; }
       { name = "dify"; ensureDBOwnership = true; }
     ];
+    # Maintien de l'authentification locale autorisée
     authentication = pkgs.lib.mkOverride 10 ''
       local   all             all                                     trust
       host    all             all             0.0.0.0/0               trust
@@ -613,7 +655,7 @@ in
     port = 8082;
     environment = {
       OLLAMA_BASE_URL = cfg.endpoints.ollama;
-      OPENAI_API_BASE_URL = "http://127.0.0.1:4000/v1";
+      OPENAI_API_BASE_URL = "http://127.0.0.1:3000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
       ENABLE_RAG_WEB_SEARCH = "true";
       RAG_WEB_SEARCH_ENGINE = "searxng";
@@ -744,6 +786,14 @@ in
   systemd.services."docker-perplexica-app" = {
     after = [ "docker-omniroute.service" "searx.service" "docker-tei-embeddings.service" ];
     wants = [ "docker-omniroute.service" "searx.service" "docker-tei-embeddings.service" ];
+    unitConfig = {
+      StartLimitIntervalSec = 60;
+      StartLimitBurst = 10;
+    };
+    serviceConfig = {
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
   };
 
   systemd.services."docker-gpt-researcher" = {
