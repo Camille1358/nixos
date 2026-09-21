@@ -316,9 +316,9 @@ in
         command = "${pkgs.nodejs}/bin/npx";
         args = [ "-y" "spider-mcp" ];
       };
-      mem0 = {
+      cognee = {
         command = "${pkgs.uv}/bin/uvx";
-        args = [ "mem0-mcp" "--mem0-url" "http://127.0.0.1:8081" ];
+        args = [ "mcp-server-cognee" "--cognee-url" "http://127.0.0.1:8000" ];
       };
     };
   };

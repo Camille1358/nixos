@@ -12,7 +12,7 @@ let
     # Ouverture du pare-feu pour le réseau interne et les conteneurs Docker
     networking.firewall = {
       enable = true;
-      allowedTCPPorts = [ 3000 4000 5432 5678 6333 6379 8005 8080 8081 8082 8085 8888 11434 1234 3001 ];
+      allowedTCPPorts = [ 3000 4000 5432 5678 6333 6379 8000 8005 8080 8082 8085 8888 11434 1234 3001 ];
       trustedInterfaces = [ "docker0" ];
     };
 
@@ -24,7 +24,7 @@ let
       qdrantHttp    = 6333;
       qdrantGrpc    = 6334;
       tei           = 8080;
-      mem0          = 8081;
+      cognee        = 8000;
       redis         = 6379;
       postgres      = 5432;
       litellm       = 4000;
@@ -48,7 +48,7 @@ let
       llamacpp  = "http://127.0.0.1:8085/v1";
       qdrant    = "http://127.0.0.1:6333";
       tei       = "http://127.0.0.1:8080/v1";
-      mem0      = "http://127.0.0.1:8081";
+      cognee    = "http://127.0.0.1:8000";
       omniroute = "http://127.0.0.1:3000/v1";
       searxng   = "http://127.0.0.1:8888";
     };
@@ -62,7 +62,7 @@ let
       qdrant     = "http://host.docker.internal:6333";
       tei        = "http://host.docker.internal:8080/v1";
       searxng    = "http://host.docker.internal:8888";
-      mem0       = "http://host.docker.internal:8081";
+      cognee     = "http://host.docker.internal:8000";
       langfuse   = "http://host.docker.internal:3001";
     };
   };
@@ -431,7 +431,7 @@ in
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
 
-      # 7.3 Plateforme de workflows d'agents (Dify API) -> Redirigé sur OmniRoute (N3.1) + Mem0 (N2.4)
+      # 7.3 Plateforme de workflows d'agents (Dify API) -> Redirigé sur OmniRoute (N3.1) + Cognee (N2.4)
       dify-api = {
         image = "langgenius/dify-api:latest";
         ports = [ "5001:5001" ];
@@ -448,10 +448,10 @@ in
           VECTOR_STORE = "qdrant";
           QDRANT_URL = "http://host.docker.internal:6333";
 
-          # Liaison N3.1 (OmniRoute Façade) & N2.4 (Mem0)
+          # Liaison N3.1 (OmniRoute Façade) & N2.4 (Cognee)
           OPENAI_API_BASE = "http://host.docker.internal:3000/v1";
           OPENAI_API_KEY = "sk-litellm-local-root-key";
-          MEM0_API_URL = "http://host.docker.internal:8081";
+          COGNEE_API_URL = "http://host.docker.internal:8000";
         };
         extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
       };
@@ -631,8 +631,8 @@ in
       OPENAI_API_BASE = "http://127.0.0.1:3000/v1";
       OPENAI_API_KEY = "sk-litellm-local-root-key";
 
-      # Liaison N2.4 (Mem0)
-      MEM0_URL = "http://127.0.0.1:8081";
+      # Liaison N2.4 (Cognee)
+      COGNEE_URL = "http://127.0.0.1:8000";
 
       # Liaison N6.3 (SearXNG)
       SEARXNG_URL = "http://127.0.0.1:8888";
@@ -646,10 +646,9 @@ in
   # ORDONNANCEMENT SYSTEMD (MAILLAGE INTER-SERVICES)
   # =========================================================================
 
-  # S'assure que Mem0 démarre uniquement lorsque Qdrant, Ollama et TEI sont fonctionnels
-  # Mem0 Memory Service
-  systemd.services.mem0-service = {
-    description = "Mem0 Memory Service";
+  # S'assure que Cognee démarre uniquement lorsque Qdrant, Ollama et TEI sont fonctionnels
+  systemd.services.cognee-service = {
+    description = "Cognee Memory & Knowledge Graph Service";
     after = [ "network.target" "qdrant.service" "litellm.service" ];
     wants = [ "qdrant.service" "litellm.service" ];
     wantedBy = [ "multi-user.target" ];
@@ -666,38 +665,48 @@ in
       pkgs.pkg-config
     ];
     environment = {
-      QDRANT_HOST = "127.0.0.1";
-      QDRANT_PORT = "6333";
-      OPENAI_API_BASE = "http://127.0.0.1:4000/v1";
-      OPENAI_API_KEY = "sk-litellm-local-root-key";
-      UV_CACHE_DIR = "/var/lib/mem0-service/.cache/uv";
-      HOME = "/var/lib/mem0-service";
+      HOME = "/var/lib/cognee-service";
+      UV_CACHE_DIR = "/var/lib/cognee-service/.cache/uv";
       SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       LD_LIBRARY_PATH = "${lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib pkgs.openssl pkgs.glibc ]}";
-      PYTHONPATH = "/var/lib/mem0-service/mem0";
+      
+      # Configuration LLM officielle Cognee -> LiteLLM Proxy (N3.2)
+      LLM_PROVIDER = "openai";
+      LLM_MODEL = "qwen-coder-fast";
+      LLM_ENDPOINT = "http://127.0.0.1:4000/v1";
+      LLM_API_KEY = "sk-litellm-local-root-key";
+
+      # Vector Database -> Qdrant (N2.1)
+      VECTOR_DB_PROVIDER = "qdrant";
+      QDRANT_HOST = "127.0.0.1";
+      QDRANT_PORT = "6333";
+
+      # Embeddings -> LiteLLM Proxy (bge-embeddings)
+      EMBEDDING_PROVIDER = "openai";
+      EMBEDDING_ENDPOINT = "http://127.0.0.1:4000/v1";
+      EMBEDDING_MODEL = "bge-embeddings";
+      EMBEDDING_DIMENSIONS = "1024";
+      EMBEDDING_API_KEY = "sk-litellm-local-root-key";
     };
+    preStart = ''
+      if [ ! -d /var/lib/cognee-service/cognee ]; then
+        ${pkgs.git}/bin/git clone https://github.com/topoteretes/cognee.git /var/lib/cognee-service/cognee
+      else
+        cd /var/lib/cognee-service/cognee && ${pkgs.git}/bin/git pull origin main
+      fi
+
+      cd /var/lib/cognee-service/cognee
+      ${pkgs.uv}/bin/uv venv --python ${pkgs.python3}/bin/python .venv --allow-existing
+      ${pkgs.uv}/bin/uv pip install --python .venv --upgrade pip setuptools wheel
+      ${pkgs.uv}/bin/uv pip install --python .venv -e ".[qdrant]" uvicorn fastapi
+    '';
     serviceConfig = {
-      StateDirectory = "mem0-service";
-      WorkingDirectory = "/var/lib/mem0-service";
-      ExecStartPre = pkgs.writeShellScript "init-mem0-repo" ''
-        if [ ! -d /var/lib/mem0-service/mem0 ]; then
-          ${pkgs.git}/bin/git clone https://github.com/mem0ai/mem0.git /var/lib/mem0-service/mem0
-        else
-          cd /var/lib/mem0-service/mem0 && ${pkgs.git}/bin/git pull origin main
-        fi
-      '';
+      StateDirectory = "cognee-service";
+      WorkingDirectory = "/var/lib/cognee-service/cognee";
+      ExecStart = "/var/lib/cognee-service/cognee/.venv/bin/python -m uvicorn cognee.api.client:app --host 0.0.0.0 --port 8000";
       Restart = "on-failure";
       RestartSec = "5s";
     };
-    script = ''
-      cd /var/lib/mem0-service/mem0
-      ${pkgs.uv}/bin/uv venv --python ${pkgs.python3}/bin/python .venv --allow-existing
-      export VIRTUAL_ENV="/var/lib/mem0-service/mem0/.venv"
-      export PATH="$VIRTUAL_ENV/bin:$PATH"
-      ${pkgs.uv}/bin/uv pip install --python .venv --upgrade pip setuptools wheel
-      ${pkgs.uv}/bin/uv pip install --python .venv -e ".[server]" fastapi uvicorn
-      exec $VIRTUAL_ENV/bin/uvicorn mem0.server.main:app --host 0.0.0.0 --port 8081
-    '';
   };
 
   # La télémétrie et la base de données doivent être prêtes en premier
@@ -749,13 +758,13 @@ in
 
   # Open WebUI et n8n passent via OmniRoute (N3.1)
   systemd.services."open-webui" = {
-    after = [ "docker-omniroute.service" "searx.service" "mem0-service.service" ];
-    wants = [ "docker-omniroute.service" "searx.service" "mem0-service.service" ];
+    after = [ "docker-omniroute.service" "searx.service" "cognee-service.service" ];
+    wants = [ "docker-omniroute.service" "searx.service" "cognee-service.service" ];
   };
 
   systemd.services."n8n" = {
-    after = [ "docker-omniroute.service" "searx.service" "qdrant.service" "mem0-service.service" ];
-    wants = [ "docker-omniroute.service" "searx.service" "qdrant.service" "mem0-service.service" ];
+    after = [ "docker-omniroute.service" "searx.service" "qdrant.service" "cognee-service.service" ];
+    wants = [ "docker-omniroute.service" "searx.service" "qdrant.service" "cognee-service.service" ];
   };
 
   # Guardrails AI Server
