@@ -9,13 +9,6 @@ let
   cfg = {
     rocmGfx = "10.3.0"; # Version ROCm spoofée pour RDNA2/RDNA3
 
-    # Ouverture du pare-feu pour le réseau interne et les conteneurs Docker
-    networking.firewall = {
-      enable = true;
-      allowedTCPPorts = [ 3000 4000 5432 5678 6333 6379 8000 8005 8080 8082 8085 8888 11434 1234 3001 ];
-      trustedInterfaces = [ "docker0" ];
-    };
-
     # Table unifiée des ports
     ports = {
       ollama        = 11434;
@@ -178,6 +171,7 @@ in
     "d /var/lib/anythingllm 0775 root root - -"
     "d /var/lib/perplexica 0775 root root - -"
     "d /etc/perplexica 0755 root root - -"
+    "f+ /etc/perplexica/config.toml 0644 root root - -"
   ];
 
   # =========================================================================

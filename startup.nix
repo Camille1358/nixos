@@ -12,6 +12,16 @@
     };
   };
 
+  systemd.user.services.opensnitch-ui = {
+    description = "Interface graphique OpenSnitch au démarrage de la session";
+    wantedBy = [ "graphical-session.target" ];
+    after = [ "graphical-session.target" ];
+    serviceConfig = {
+      ExecStart = "${pkgs.opensnitch-ui}/bin/opensnitch-ui";
+      Restart = "on-failure";
+    };
+  };
+
   systemd.user.services.auto-update = {
     description = "Mise à jour automatique des paquets critiques au démarrage";
     wantedBy = [ "default.target" ];

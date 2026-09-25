@@ -6,6 +6,9 @@
 
 let
   local = import ./local.nix;
+  pkgs-unstable = import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {
+    config.allowUnfree = true;
+  };
 in
 
 {
@@ -101,7 +104,7 @@ in
         enable = true;
         user = local.sysName;
       };
-    };
+    }; 
   };
 
   security.rtkit.enable = true;
@@ -109,10 +112,9 @@ in
   users.users."${local.sysName}" = { # Define a user account. Don't forget to set a password with ‘passwd’.
     isNormalUser = true;
     description = local.sysName;
-    extraGroups = [ "networkmanager" "wheel" ];
+    extraGroups = [ "networkmanager" "wheel" "i2c" ]; # i2c pour rgb control
     packages = with pkgs; [
       kdePackages.kate
-    #  thunderbird
     ];
   };
 
@@ -125,6 +127,61 @@ in
   zramSwap.enable = true;
 
   networking.firewall.allowedTCPPorts = [ 5432 ];
+
+  #----------------------------------------Control-Flux-Internet-----------------------------------------
+  #control total de mon flux internet
+  services.opensnitch = {
+    enable = true;
+    settings = {
+      DefaultAction = "deny";
+      DefaultDuration = "always";
+    };
+    rules = {
+      "000-allow-nsncd" = {
+        name = "000-allow-nsncd";
+        enabled = true;
+        action = "allow";
+        duration = "always";
+        operator = {
+          type = "simple";
+          operand = "process";
+          data = "/nix/store/*-nsncd-*/bin/nsncd";
+        };
+      };
+      # Règle pour autoriser les communications locales (127.0.0.1)
+      "001-allow-loopback" = {
+        name = "001-allow-loopback";
+        enabled = true;
+        action = "allow";
+        duration = "always";
+        operator = {
+          type = "simple";
+          operand = "destNetwork";
+          data = "127.0.0.0/8";
+        };
+      };
+    };
+  };
+
+
+  #----------------------------------------Control-RGB-----------------------------------------
+  services.hardware.openrgb = {
+    enable = true;
+    package = pkgs-unstable.openrgb;
+  };
+
+  # 2. Support I2C de base sans charger les modules SMBus instables
+  hardware.i2c.enable = true;
+
+  # Seul "i2c-dev" est conservé. "i2c-piix4" et "i2c-i801" sont RETIRÉS 
+  # pour supprimer le crash au scan de la carte mère ASUS / GPU.
+  boot.kernelModules = [ "i2c-dev" ];
+
+  # 3. Import du paquet propre dans le système
+  environment.systemPackages = [
+    pkgs-unstable.openrgb
+  ];
+  #--------------------------------------------------------------------------------------------
 
   # List packages installed in system profile. To search, run:
   # $ nix search wget

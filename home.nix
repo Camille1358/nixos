@@ -27,7 +27,7 @@ let
     };
 
     # Remplacement de pkgs.lib.fakeHash par le hash réel pour autoriser le build
-    cargoHash = "sha256-93b520deb0ebadeb578d7fca8e842183277df5a59792aee78315d9945cbbb859="; 
+    cargoHash = "sha256-k7Ug3rDrreTXjX/KjoQhgyd99aWXkqrn8xXZlFy7uFk="; 
     buildAndCheckSubdir = "spider_cli";
 
     nativeBuildInputs = [ pkgs.pkg-config ];
@@ -83,6 +83,65 @@ let
   spicetify-nix = (import (builtins.fetchTarball "https://github.com/edolstra/flake-compat/archive/master.tar.gz") {
     src = builtins.fetchTarball "https://github.com/Gerg-L/spicetify-nix/archive/master.tar.gz";
   }).defaultNix;
+  #----------------------------------------------Maths------------------------------------------------
+  # Dérivation Nix pour MF_Tools (Dépendance requise par MF_Algebra)
+  mf-tools = pkgs.python3Packages.buildPythonPackage rec {
+    pname = "MF_Tools";
+    version = "0.1.0";
+    format = "other";
+
+    src = pkgs.fetchFromGitHub {
+      owner = "TheMathematicFanatic";
+      repo = "MF_Tools";
+      rev = "main";
+      hash = "sha256-dDWU/+MZSbzs7Z0HOj8p2oJLPuniqu/0tBvNgoK49q4=";
+    };
+
+    installPhase = ''
+      mkdir -p $out/${pkgs.python3.sitePackages}
+      if [ -d "src/MF_Tools" ]; then
+        cp -r src/MF_Tools $out/${pkgs.python3.sitePackages}/
+      elif [ -d "MF_Tools" ]; then
+        cp -r MF_Tools $out/${pkgs.python3.sitePackages}/
+      else
+        cp -r . $out/${pkgs.python3.sitePackages}/
+      fi
+    '';
+
+    doCheck = false;
+    dontCheckRuntimeDeps = true;
+
+    propagatedBuildInputs = with pkgs.python3Packages; [
+      manim
+    ];
+  };
+
+  # Dérivation Nix pour MF_Algebra (Manim Plugin)
+  mf-algebra = pkgs.python3Packages.buildPythonPackage rec {
+    pname = "MF_Algebra";
+    version = "0.1.0";
+    format = "other";
+
+    src = pkgs.fetchFromGitHub {
+      owner = "TheMathematicFanatic";
+      repo = "MF_Algebra";
+      rev = "main";
+      hash = "sha256-aO2FQhkcqphIzfZ0myVOGFV32S+lJlDLxKrKCynYs0U=";
+    };
+
+    installPhase = ''
+      mkdir -p $out/${pkgs.python3.sitePackages}
+      cp -r src/MF_Algebra $out/${pkgs.python3.sitePackages}/
+    '';
+
+    doCheck = false;
+    dontCheckRuntimeDeps = true;
+
+    propagatedBuildInputs = with pkgs.python3Packages; [
+      manim
+      mf-tools
+    ];
+  };
 in
 
 {
@@ -142,6 +201,12 @@ in
       sublime3
       qalculate-qt
       evince
+      pkgs.opensnitch-ui
+      qimgv
+      vintagestory
+      #----------------------------------------------Maths------------------------------------------------
+      ffmpeg
+      texlive.combined.scheme-full
       #----------------------------------------------Browser----------------------------------------------
       pkgs-unstable.tor-browser # dernière version possible "pkgs-unstable"
       pkgs-unstable.mullvad-browser # dernière version sur la stable "pkgs-stable-latest.mullvad-browser"
@@ -205,11 +270,11 @@ in
           pydantic-ai
           #crawl4ai
           crawl4ai
+          #-----------------------Maths-----------------------
+          sympy
+          mf-algebra
         ]
       ))
-      #-------------------------------------------
-      # 6.5 Agent de Codage Terminal (déjà ajouté précédemment)
-      opencode
       #--------------------------------------------------------------------------------------------------
 
       # Discord PTB + Vencord
