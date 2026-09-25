@@ -179,7 +179,12 @@ in
 
   # 3. Import du paquet propre dans le système
   environment.systemPackages = [
-    pkgs-unstable.openrgb
+    pkgs.openrgb
+  ];
+
+  boot.blacklistedKernelModules = [
+    "hid_roccat"
+    "hid_roccat_vulcan"
   ];
   #--------------------------------------------------------------------------------------------
 

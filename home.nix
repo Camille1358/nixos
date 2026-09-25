@@ -297,18 +297,19 @@ in
     spicePkgs = spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
   in {
     enable = true;
-    theme = spicePkgs.themes.dreary;
+    theme = spicePkgs.themes.sleek;
+    colorScheme = "Deeper";
 
-    # Extensions actives
+    # Extensions actives (scripts JS)
     enabledExtensions = with spicePkgs.extensions; [
       hidePodcasts
       shuffle
-      beautifulLyrics
       bookmark
       volumePercentage
+      beautifulLyrics
     ];
 
-    # Active l'onglet Marketplace dans Spotify
+    # Applications personnalisées (onglets dédiés dans la barre latérale)
     enabledCustomApps = with spicePkgs.apps; [
       marketplace
     ];
