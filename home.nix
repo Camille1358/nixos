@@ -74,7 +74,7 @@ in
       keepassxc
       obs-studio
       fastfetch
-      htop
+      btop
       nvtopPackages.amd
       pavucontrol
       sublime3
