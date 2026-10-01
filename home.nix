@@ -74,7 +74,7 @@ in
       keepassxc
       obs-studio
       fastfetch
-      btop
+      #kdePackages.plasma-systemmonitor #déjà installer avec kde mais quand je suprimerais kde à ajouter
       nvtopPackages.amd
       pavucontrol
       sublime3
