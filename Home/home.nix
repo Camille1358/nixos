@@ -1,7 +1,7 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 let
-  local = import ./local.nix;
+  local = import ../local.nix;
   pkgs-stable-latest =
     import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz")
       {
@@ -13,71 +13,6 @@ let
         config.allowUnfree = true;
       };
 
-  #-----------------------------------------------IA------------------------------------------------
-  # 6.1 Dérivation personnalisée Nix pour Spider CLI via GitHub
-  spider-cli = pkgs.rustPlatform.buildRustPackage rec {
-    pname = "spider_cli";
-    version = "2.2.0";
-
-    src = pkgs.fetchFromGitHub {
-      owner = "spider-rs";
-      repo = "spider";
-      rev = "v${version}";
-      hash = "sha256-b4JLe0STxPR1Y0y0lpGm3sH9ehXDHhxl36cq/5Lw0NQ=";
-    };
-
-    # Remplacement de pkgs.lib.fakeHash par le hash réel pour autoriser le build
-    cargoHash = "sha256-k7Ug3rDrreTXjX/KjoQhgyd99aWXkqrn8xXZlFy7uFk="; 
-    buildAndCheckSubdir = "spider_cli";
-
-    nativeBuildInputs = [ pkgs.pkg-config ];
-    buildInputs = [ pkgs.openssl ];
-  };
-
-  # 5.3 Framework Agent Graph (PydanticAI)
-  pydantic-ai = pkgs.python3Packages.buildPythonPackage rec {
-    pname = "pydantic_ai_slim";
-    version = "0.0.18";
-    format = "pyproject";
-    src = pkgs.python3Packages.fetchPypi {
-      pname = "pydantic_ai_slim";
-      inherit version;
-      hash = "sha256-DvbHn+GvS9le888ZvE9WbDDzwhtljjaJqPIPxzJCEtA=";
-    };
-    doCheck = false;
-    dontCheckRuntimeDeps = true; # Désactive la vérification stricte des dépendances runtime optionnelles
-
-    nativeBuildInputs = [ pkgs.python3Packages.hatchling ];
-    propagatedBuildInputs = with pkgs.python3Packages; [
-      pydantic
-      httpx
-      griffe
-      eval-type-backport
-    ];
-  };
-
-  # 6.2 Conversion Markdown LLM (Crawl4AI)
-  crawl4ai = pkgs.python3Packages.buildPythonPackage rec {
-    pname = "crawl4ai";
-    version = "0.4.247";
-    format = "setuptools";
-    src = pkgs.python3Packages.fetchPypi {
-      inherit pname version;
-      hash = "sha256-pGTb9hsM1RK7OHBpDmgWjAPc2ZP4YzY7isDKNhRWUIA=";
-    };
-    doCheck = false;
-    
-    # Correction du build sandbox Nix
-    preBuild = ''
-      export HOME=$(mktemp -d)
-    '';
-
-    propagatedBuildInputs = with pkgs.python3Packages; [
-      pydantic
-      httpx
-      beautifulsoup4
-    ];
-  };
   #-------------------------------------------------------------------------------------------------
   # Import de spicetify-nix pour spotify
   spicetify-nix = (import (builtins.fetchTarball "https://github.com/edolstra/flake-compat/archive/master.tar.gz") {
@@ -115,77 +50,20 @@ let
       manim
     ];
   };
-
-  # Dérivation Nix pour MF_Algebra (Manim Plugin)
-  mf-algebra = pkgs.python3Packages.buildPythonPackage rec {
-    pname = "MF_Algebra";
-    version = "0.1.0";
-    format = "other";
-
-    src = pkgs.fetchFromGitHub {
-      owner = "TheMathematicFanatic";
-      repo = "MF_Algebra";
-      rev = "main";
-      hash = "sha256-aO2FQhkcqphIzfZ0myVOGFV32S+lJlDLxKrKCynYs0U=";
-    };
-
-    installPhase = ''
-      mkdir -p $out/${pkgs.python3.sitePackages}
-      cp -r src/MF_Algebra $out/${pkgs.python3.sitePackages}/
-    '';
-
-    doCheck = false;
-    dontCheckRuntimeDeps = true;
-
-    propagatedBuildInputs = with pkgs.python3Packages; [
-      manim
-      mf-tools
-    ];
-  };
 in
 
 {
+  imports = [
+    ./IA-home.nix
+    ../Python
+    spicetify-nix.homeManagerModules.default
+  ];
   nix.extraOptions = ''
     tarball-ttl = 0
   '';
   home = {
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
-    sessionVariables = {
-
-      RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
-
-      # ----------------------------------------------------------------------
-      # MAILLAGE GLOBAL : ROUTAGE, MÉMOIRE ET TÉLÉMÉTRIE
-      # ----------------------------------------------------------------------
-      # Routage Universel ➔ Façade OmniRoute (N3.1)
-      OPENAI_API_BASE = "http://127.0.0.1:3000/v1";
-      OPENAI_API_KEY = "sk-litellm-local-root-key";
-      
-      # Bypass sécurisé pour Guardrails AI (N4.2) si appelé en direct
-      GUARDRAILS_API_BASE = "http://127.0.0.1:8005/v1";
-      
-      # Mémoire Long Terme Globale (N2.4)
-      COGNEE_HOST = "http://127.0.0.1:8000";
-      COGNEE_API_URL = "http://127.0.0.1:8000";
-
-      # Observabilité LLMOps Névralgique (N5.4 Langfuse)
-      LANGFUSE_HOST = "http://127.0.0.1:3001";
-      LANGFUSE_PUBLIC_KEY = "pk-lf-9c4a87fb-c5cf-4959-860a-bde8e3cd5b90";
-      LANGFUSE_SECRET_KEY = "sk-lf-3a04243c-ee3d-457e-92e2-3664073ad3f2";
-
-      # Endpoints d'Ingestion & Moteurs de Recherche (N2.1, N6.3)
-      SEARXNG_URL = "http://127.0.0.1:8888";
-      QDRANT_URL = "http://127.0.0.1:6333";
-
-      # ----------------------------------------------------------------------
-      # NIVEAU 4.3 : HARNAIS RUFLO (Connecté au maillage)
-      # ----------------------------------------------------------------------
-      RUFLO_LLM_ENDPOINT = "http://127.0.0.1:3000/v1";
-      RUFLO_TELEMETRY_HOST = "http://127.0.0.1:3001";
-      RUFLO_WORKTREE_ROOT = "/var/lib/ruflo/worktrees";
-      RUFLO_DEFAULT_MODEL = "qwen-coder-fast";
-    };
     packages = with pkgs; [
       # Paquets installés uniquement pour la session utilisateur
       #-----------------------------------------------APPs------------------------------------------------
@@ -223,60 +101,7 @@ in
       goverlay
       mangohud
       #---------------------------------------------------------------------------------------------------
-      #-------------------------------------------------IA------------------------------------------------
-      opencode
-      docker-compose
-      llama-cpp-rocm
-      mistral-rs
-      clinfo
-      rocmPackages.rocminfo
-      rocmPackages.rocm-smi
-      # 4.1, 4.2 & 4.3
-      nodejs
-      cargo
-      rustc
-      rust-analyzer
-      gcc
-      rustPlatform.rustLibSrc
-      uv # Executera instantanément Guardrails AI, MCP et RuFlo via virtualenv légers
       
-
-      (pkgs.symlinkJoin {
-        name = "appflowy-wrapped";
-        paths = [ pkgs.appflowy ];
-        nativeBuildInputs = [ pkgs.makeWrapper ];
-        postBuild = ''
-          wrapProgram $out/bin/appflowy \
-            --set AI_OPENAI_API_KEY "sk-litellm-local-root-key" \
-            --set AI_OPENAI_HOST "http://127.0.0.1:3000/v1" \
-            --set OLLAMA_HOST "http://127.0.0.1:3000" 
-        '';
-      })
-
-      #-------------------------------------------
-      (python3.withPackages (
-        ps: with ps; [
-          lancedb
-          pyarrow
-          # 4.1 Validation & Sorties Structurées
-          pydantic
-          pydantic-core
-          # 5.3 Frameworks Agents Python
-          langgraph
-          # 5.1 Protocole MCP Python
-          mcp
-          # issue du bloc let-in
-          spider-cli
-          pydantic-ai
-          #crawl4ai
-          crawl4ai
-          #-----------------------Maths-----------------------
-          sympy
-          mf-algebra
-        ]
-      ))
-      #--------------------------------------------------------------------------------------------------
-
       # Discord PTB + Vencord
       (discord-ptb.override {
         withVencord = true;
@@ -288,10 +113,6 @@ in
       })
     ];
   };
-
-  imports = [
-    spicetify-nix.homeManagerModules.default
-  ];
 
   programs.spicetify = let
     spicePkgs = spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
@@ -340,7 +161,7 @@ in
         "general.autoScroll" = true; # Active le défilement automatique pour une meilleure fluidité de navigation
         "privacy.resistFingerprinting" = false; # Protection contre le fingerprinting (+++FingerprintingResist, mais lourd sur l'ergo)
         "privacy.fingerprintingProtection" = false; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
-        "dom.security.https_only_mode" = false; # Mode HTTPS (+confidentialité & sécurité)
+        "dom.security.https_only_mode" = true; # Mode HTTPS (+confidentialité & sécurité)
         "privacy.donottrackheader.enabled" = false; # Désactive l'envoi de l'en-tête Do Not Track (+FingerprintingResist)
         "privacy.trackingprotection.enabled" = true; # Protection contre le tracking (+confidentialité)
         "datareporting.healthreport.uploadEnabled" = false; # Désactive l'envoi de rapports (+confidentialité)
@@ -371,28 +192,6 @@ in
           min-width: 0px !important;
         }
       '';
-    };
-  };
-
-  # 5.1 Protocole MCP - Connexions directes aux services de la stack
-  home.file.".config/opencode/mcp_servers.json".text = builtins.toJSON {
-    mcpServers = {
-      searxng = {
-        command = "${pkgs.uv}/bin/uvx";
-        args = [ "mcp-searxng" "--searxng-url" "http://127.0.0.1:8888" ];
-      };
-      qdrant = {
-        command = "${pkgs.uv}/bin/uvx";
-        args = [ "mcp-server-qdrant" "--qdrant-url" "http://127.0.0.1:6333" ];
-      };
-      spider = {
-        command = "${pkgs.nodejs}/bin/npx";
-        args = [ "-y" "spider-mcp" ];
-      };
-      cognee = {
-        command = "${pkgs.uv}/bin/uvx";
-        args = [ "mcp-server-cognee" "--cognee-url" "http://127.0.0.1:8000" ];
-      };
     };
   };
 
