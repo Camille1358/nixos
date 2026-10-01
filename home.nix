@@ -295,23 +295,29 @@ in
 
   programs.spicetify = let
     spicePkgs = spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
+
+    beautifulLyricsApp = pkgs.fetchzip {
+      url = "https://github.com/surfbryce/beautiful-lyrics/releases/download/v5.1.0/beautiful-lyrics.zip";
+      hash = "sha256-qdI220Mf3k3GcBtG1ls12G7M72zwhn90XhdnpvEv5/s=";
+    };
   in {
     enable = true;
     theme = spicePkgs.themes.sleek;
     colorScheme = "Deeper";
 
-    # Extensions actives (scripts JS)
     enabledExtensions = with spicePkgs.extensions; [
       hidePodcasts
       shuffle
       bookmark
       volumePercentage
-      beautifulLyrics
     ];
 
-    # Applications personnalisées (onglets dédiés dans la barre latérale)
     enabledCustomApps = with spicePkgs.apps; [
       marketplace
+      {
+        name = "beautiful-lyrics";
+        src = beautifulLyricsApp;
+      }
     ];
   };
 
@@ -334,7 +340,7 @@ in
         "general.autoScroll" = true; # Active le défilement automatique pour une meilleure fluidité de navigation
         "privacy.resistFingerprinting" = false; # Protection contre le fingerprinting (+++FingerprintingResist, mais lourd sur l'ergo)
         "privacy.fingerprintingProtection" = false; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
-        "dom.security.https_only_mode" = true; # Mode HTTPS (+confidentialité & sécurité)
+        "dom.security.https_only_mode" = false; # Mode HTTPS (+confidentialité & sécurité)
         "privacy.donottrackheader.enabled" = false; # Désactive l'envoi de l'en-tête Do Not Track (+FingerprintingResist)
         "privacy.trackingprotection.enabled" = true; # Protection contre le tracking (+confidentialité)
         "datareporting.healthreport.uploadEnabled" = false; # Désactive l'envoi de rapports (+confidentialité)

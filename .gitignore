@@ -1,6 +1,7 @@
 .gitignore
 local.nix
-wireguard.nix
 firewall.nix
 flowchard1.png
 flowchard2.png
+wg-NL-FREE-221.conf
+private.key

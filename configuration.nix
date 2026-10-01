@@ -21,6 +21,7 @@ in
       ./packages.nix
       ./startup.nix
       ./IA.nix
+      ./wireguard/wireguard.nix
       <home-manager/nixos>
     ];
 
