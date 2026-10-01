@@ -1,7 +1,7 @@
 { config, pkgs, lib, ... }:
 
 let
-  local = import ../local.nix;
+  local = import ./local.nix;
   pkgs-stable-latest =
     import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz")
       {
@@ -18,6 +18,7 @@ let
   spicetify-nix = (import (builtins.fetchTarball "https://github.com/edolstra/flake-compat/archive/master.tar.gz") {
     src = builtins.fetchTarball "https://github.com/Gerg-L/spicetify-nix/archive/master.tar.gz";
   }).defaultNix;
+
   #----------------------------------------------Maths------------------------------------------------
   # Dérivation Nix pour MF_Tools (Dépendance requise par MF_Algebra)
   mf-tools = pkgs.python3Packages.buildPythonPackage rec {
@@ -54,8 +55,8 @@ in
 
 {
   imports = [
-    ./IA-home.nix
-    ../Python
+    ./IA/IA-home.nix
+    ./Python
     spicetify-nix.homeManagerModules.default
   ];
   nix.extraOptions = ''

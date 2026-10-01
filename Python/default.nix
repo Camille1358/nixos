@@ -2,7 +2,7 @@
 
 let
   mathsPackages = import ./py-maths.nix { inherit pkgs; };
-  iaPackages = import ./py-ia.nix { inherit pkgs; };
+  iaPackages = import ../IA/py-ia.nix { inherit pkgs; };
 in
 {
   home.packages = [

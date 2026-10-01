@@ -20,7 +20,7 @@ in
       ./nixos_instable.nix
       ./packages.nix
       ./startup.nix
-      ./IA.nix
+      ./IA/IA.nix
       ./wireguard/wireguard.nix
       <home-manager/nixos>
     ];
@@ -30,7 +30,7 @@ in
   home-manager = { # Home-manager configuration
     useGlobalPkgs = true; # Utilise les paquets du système pour éviter les doublons
     useUserPackages = true; # Installe les paquets directement dans le profil utilisateur
-    users.${local.sysName} = import ./Home/home.nix;
+    users.${local.sysName} = import ./home.nix;
   };
 
   # Bootloader.

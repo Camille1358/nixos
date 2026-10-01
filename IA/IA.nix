@@ -1,7 +1,7 @@
 { config, pkgs, lib, ... }:
 
 let
-  local = import ./local.nix;
+  local = import ../local.nix;
   # =========================================================================
   # CENTRALISATION DES PARAMÈTRES ET MAILLAGE RÉSEAU (N0 ➔ N7)
   # =========================================================================
@@ -356,6 +356,29 @@ in
         ];
       };
 
+      # 2.4 Mémoire Long Terme & Graph Knowledge (Cognee)
+      cognee = {
+        image = "topoteretes/cognee:latest";
+        ports = [ "8000:8000" ];
+        environment = {
+          LLM_PROVIDER = "openai";
+          LLM_MODEL = "qwen-coder-fast";
+          LLM_ENDPOINT = "http://host.docker.internal:4000/v1";
+          LLM_API_KEY = "sk-litellm-local-root-key";
+
+          VECTOR_DB_PROVIDER = "qdrant";
+          QDRANT_HOST = "host.docker.internal";
+          QDRANT_PORT = "6333";
+
+          EMBEDDING_PROVIDER = "openai";
+          EMBEDDING_ENDPOINT = "http://host.docker.internal:4000/v1";
+          EMBEDDING_MODEL = "bge-embeddings";
+          EMBEDDING_DIMENSIONS = "1024";
+          EMBEDDING_API_KEY = "sk-litellm-local-root-key";
+        };
+        extraOptions = [ "--add-host=host.docker.internal:host-gateway" ];
+      };
+
       # 3.1 Façade Utilisateur (OmniRoute) -> Intercepte et force le passage via Guardrails
       omniroute = {
         image = "diegosouzapw/omniroute:latest";
@@ -680,69 +703,6 @@ in
   # =========================================================================
   # ORDONNANCEMENT SYSTEMD (MAILLAGE INTER-SERVICES)
   # =========================================================================
-
-  # S'assure que Cognee démarre uniquement lorsque Qdrant, Ollama et TEI sont fonctionnels
-  systemd.services.cognee-service = {
-    description = "Cognee Memory & Knowledge Graph Service";
-    after = [ "network.target" "qdrant.service" "litellm.service" ];
-    wants = [ "qdrant.service" "litellm.service" ];
-    wantedBy = [ "multi-user.target" ];
-    path = [ 
-      pkgs.python3 
-      pkgs.git 
-      pkgs.gcc 
-      pkgs.bash 
-      pkgs.stdenv.cc.cc 
-      pkgs.cacert 
-      pkgs.uv 
-      pkgs.zlib
-      pkgs.openssl
-      pkgs.pkg-config
-    ];
-    environment = {
-      HOME = "/var/lib/cognee-service";
-      UV_CACHE_DIR = "/var/lib/cognee-service/.cache/uv";
-      SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-      LD_LIBRARY_PATH = "${lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib pkgs.openssl pkgs.glibc ]}";
-      
-      # Configuration LLM officielle Cognee -> LiteLLM Proxy (N3.2)
-      LLM_PROVIDER = "openai";
-      LLM_MODEL = "qwen-coder-fast";
-      LLM_ENDPOINT = "http://127.0.0.1:4000/v1";
-      LLM_API_KEY = "sk-litellm-local-root-key";
-
-      # Vector Database -> Qdrant (N2.1)
-      VECTOR_DB_PROVIDER = "qdrant";
-      QDRANT_HOST = "127.0.0.1";
-      QDRANT_PORT = "6333";
-
-      # Embeddings -> LiteLLM Proxy (bge-embeddings)
-      EMBEDDING_PROVIDER = "openai";
-      EMBEDDING_ENDPOINT = "http://127.0.0.1:4000/v1";
-      EMBEDDING_MODEL = "bge-embeddings";
-      EMBEDDING_DIMENSIONS = "1024";
-      EMBEDDING_API_KEY = "sk-litellm-local-root-key";
-    };
-    preStart = ''
-      if [ ! -d /var/lib/cognee-service/cognee ]; then
-        ${pkgs.git}/bin/git clone https://github.com/topoteretes/cognee.git /var/lib/cognee-service/cognee
-      else
-        cd /var/lib/cognee-service/cognee && ${pkgs.git}/bin/git pull origin main
-      fi
-
-      cd /var/lib/cognee-service/cognee
-      ${pkgs.uv}/bin/uv venv --python ${pkgs.python3}/bin/python .venv --allow-existing
-      ${pkgs.uv}/bin/uv pip install --python .venv --upgrade pip setuptools wheel
-      ${pkgs.uv}/bin/uv pip install --python .venv -e ".[qdrant]" uvicorn fastapi
-    '';
-    serviceConfig = {
-      StateDirectory = "cognee-service";
-      WorkingDirectory = "/var/lib/cognee-service/cognee";
-      ExecStart = "/var/lib/cognee-service/cognee/.venv/bin/python -m uvicorn cognee.api.client:app --host 0.0.0.0 --port 8000";
-      Restart = "on-failure";
-      RestartSec = "5s";
-    };
-  };
 
   # La télémétrie et la base de données doivent être prêtes en premier
   systemd.services."docker-langfuse-server" = {
