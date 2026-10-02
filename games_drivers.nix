@@ -25,6 +25,7 @@ in
       package = pkgs-unstable.mesa;
       package32 = pkgs-unstable.pkgsi686Linux.mesa;
     };
+    amdgpu.opencl.enable = true; # Active le support OpenCL pour les GPU AMD
   };
 
   services.xserver.videoDrivers = ["amdgpu"];

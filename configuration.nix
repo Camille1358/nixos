@@ -80,6 +80,7 @@ in
     # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
     # networking.proxy.default = "http://user:password@proxy:port/"; # Configure network proxy if necessary
     # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
+    #firewall.allowedTCPPorts = [ 5432 ];
   };
 
   services = {
@@ -107,20 +108,6 @@ in
     }; 
   };
 
-  # Drivers graphiques et bibliothèques ROCm / HIP / OpenCL
-  hardware.graphics = {
-    enable = true;
-    enable32Bit = true;
-    extraPackages = with pkgs; [
-      rocmPackages.clr.icd
-      rocmPackages.rocblas
-      rocmPackages.hipblas
-      rocmPackages.rocm-smi
-    ];
-  };
-
-  hardware.amdgpu.opencl.enable = true;
-
   security.rtkit.enable = true;
 
   users.users."${local.sysName}" = { # Define a user account. Don't forget to set a password with ‘passwd’.
@@ -139,8 +126,6 @@ in
 
   # Gestion de la mémoire et réactivité système
   zramSwap.enable = true;
-
-  networking.firewall.allowedTCPPorts = [ 5432 ];
 
   #----------------------------------------Control-Flux-Internet-----------------------------------------
   #control total de mon flux internet
