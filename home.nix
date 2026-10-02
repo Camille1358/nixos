@@ -55,7 +55,7 @@ in
 
 {
   imports = [
-    ./IA/IA-home.nix
+    #./IA/IA-home.nix
     ./Python
     spicetify-nix.homeManagerModules.default
   ];

@@ -17,10 +17,9 @@ in
       ./hardware-configuration.nix
       ./alias.nix
       ./localisation.nix
-      ./nixos_instable.nix
-      ./packages.nix
+      ./games_drivers.nix
       ./startup.nix
-      ./IA/IA.nix
+      #./IA/IA.nix
       ./wireguard/wireguard.nix
       <home-manager/nixos>
     ];
@@ -56,10 +55,10 @@ in
   };
 
   # auto-update
-  system.autoUpgrade = {
-    enable = true;
-    dates = "weekly";
-  };
+  #system.autoUpgrade = {
+  #  enable = true;
+  #  dates = "weekly";
+  #};
 
   nix = {
     gc = {
@@ -107,6 +106,20 @@ in
       };
     }; 
   };
+
+  # Drivers graphiques et bibliothèques ROCm / HIP / OpenCL
+  hardware.graphics = {
+    enable = true;
+    enable32Bit = true;
+    extraPackages = with pkgs; [
+      rocmPackages.clr.icd
+      rocmPackages.rocblas
+      rocmPackages.hipblas
+      rocmPackages.rocm-smi
+    ];
+  };
+
+  hardware.amdgpu.opencl.enable = true;
 
   security.rtkit.enable = true;
 
@@ -188,6 +201,8 @@ in
     "hid_roccat_vulcan"
   ];
   #--------------------------------------------------------------------------------------------
+
+  
 
   # List packages installed in system profile. To search, run:
   # $ nix search wget

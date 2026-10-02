@@ -52,23 +52,4 @@
   swapDevices =
     [ { device = "/dev/disk/by-uuid/f0a4a960-0944-486d-b4a3-1e10f10c5845"; }
     ];
-
-  nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
-
-  hardware = {
-    cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
-    steam-hardware.enable = true; # Active le support matériel pour Steam et les jeux sous Proton
-    xpadneo.enable = true; # Ce pilote améliore la stabilité et la gestion de la batterie des manettes Xbox en Bluetooth.
-    graphics = { # hardware.opengl has beed changed to hardware.graphics
-      enable = true;
-      enable32Bit = true;
-    };
-  };
-
-  services.xserver.videoDrivers = ["amdgpu"];
-
-  environment.variables = {
-    AMD_VULKAN_ICD = "RADV";
-    MESA_GL_THREAD = "true";
-  };
 }

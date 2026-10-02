@@ -6,8 +6,9 @@ let
 in
 {
   home.packages = [
-    (pkgs.python3.withPackages (
-      ps: (mathsPackages ps) ++ (iaPackages ps)
+    (pkgs.python3.withPackages (ps:
+      (mathsPackages ps)
+      # ++ (iaPackages ps)
     ))
   ];
 }

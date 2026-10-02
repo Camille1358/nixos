@@ -126,20 +126,6 @@ in
     { domain = "*"; item = "nproc";   type = "-"; value = "524288"; }
   ];
 
-  # Drivers graphiques et bibliothèques ROCm / HIP / OpenCL
-  hardware.graphics = {
-    enable = true;
-    enable32Bit = true;
-    extraPackages = with pkgs; [
-      rocmPackages.clr.icd
-      rocmPackages.rocblas
-      rocmPackages.hipblas
-      rocmPackages.rocm-smi
-    ];
-  };
-
-  hardware.amdgpu.opencl.enable = true;
-
   # Variables d'environnement globales pour le runtime ROCm / PyTorch
   environment.variables = {
     HSA_OVERRIDE_GFX_VERSION = cfg.rocmGfx;
