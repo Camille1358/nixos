@@ -6,7 +6,7 @@
 
 let
   local = import ./local.nix;
-  pkgs-unstable = import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {
+  pkgs-unstable = import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/cf5e76507c6e.tar.gz") {
     config.allowUnfree = true;
   };
 in
@@ -20,7 +20,7 @@ in
       ./games_drivers.nix
       ./startup.nix
       #./IA/IA.nix
-      ./wireguard/wireguard.nix
+      #./wireguard/wireguard.nix
       <home-manager/nixos>
     ];
 
@@ -113,7 +113,7 @@ in
   users.users."${local.sysName}" = { # Define a user account. Don't forget to set a password with ‘passwd’.
     isNormalUser = true;
     description = local.sysName;
-    extraGroups = [ "networkmanager" "wheel" "i2c" ]; # i2c pour rgb control
+    extraGroups = [ "networkmanager" "wheel" ]; # ajouter "i2c" pour rgb control si besoin
     packages = with pkgs; [
       kdePackages.kate
     ];
@@ -164,27 +164,27 @@ in
 
 
   #----------------------------------------Control-RGB-----------------------------------------
-  services.hardware.openrgb = {
-    enable = true;
-    package = pkgs-unstable.openrgb;
-  };
+  #services.hardware.openrgb = {
+  #  enable = true;
+  #  package = pkgs-unstable.openrgb;
+  #};
 
   # 2. Support I2C de base sans charger les modules SMBus instables
-  hardware.i2c.enable = true;
+  #hardware.i2c.enable = true;
 
   # Seul "i2c-dev" est conservé. "i2c-piix4" et "i2c-i801" sont RETIRÉS 
   # pour supprimer le crash au scan de la carte mère ASUS / GPU.
-  boot.kernelModules = [ "i2c-dev" ];
+  #boot.kernelModules = [ "i2c-dev" ];
 
   # 3. Import du paquet propre dans le système
-  environment.systemPackages = [
-    pkgs.openrgb
-  ];
+  #environment.systemPackages = [
+  #  pkgs.openrgb
+  #];
 
-  boot.blacklistedKernelModules = [
-    "hid_roccat"
-    "hid_roccat_vulcan"
-  ];
+  #boot.blacklistedKernelModules = [
+  #  "hid_roccat"
+  #  "hid_roccat_vulcan"
+  #];
   #--------------------------------------------------------------------------------------------
 
   

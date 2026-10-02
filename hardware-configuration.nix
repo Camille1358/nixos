@@ -31,22 +31,22 @@
     fileSystems."/storage/NVME" =
   {
     device = "/dev/disk/by-uuid/8800BF7100BF653A"; #nvme
-    fsType = "ntfs-3g";
-    options = [ "defaults" "nofail" "x-systemd.automount" "noatime" "uid=1000" "gid=100" "dmask=000" "fmask=111" ];
+    fsType = "ntfs";
+    options = [ "defaults" "nofail" "noatime" "uid=1000" "gid=100" "umask=022" ];
   };
 
   fileSystems."/storage/HDD" =
   { 
     device = "/dev/disk/by-uuid/1E459C1E6E68CCC9"; #HDD intnerne
-    fsType = "ntfs-3g";
-    options = [ "defaults" "nofail" "x-systemd.automount" "noatime" "uid=1000" "gid=100" "dmask=000" "fmask=111" ];
+    fsType = "ntfs";
+    options = [ "defaults" "nofail" "noatime" ];
   };
 
     fileSystems."/storage/HDD-ext" =
   { 
     device = "/dev/disk/by-uuid/0212EF0212EEFA15"; #HDD externe
-    fsType = "ntfs-3g";
-    options = [ "defaults" "nofail" "x-systemd.automount" "noatime" "uid=1000" "gid=100" "dmask=000" "fmask=111" ];
+    fsType = "ntfs";
+    options = [ "defaults" "nofail" "noatime" ];
   };
 
   swapDevices =

@@ -8,7 +8,7 @@ in
   home.packages = [
     (pkgs.python3.withPackages (ps:
       (mathsPackages ps)
-      # ++ (iaPackages ps)
+      ++ (iaPackages ps)
     ))
   ];
 }

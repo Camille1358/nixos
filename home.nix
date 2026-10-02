@@ -1,4 +1,4 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, ... }:
 
 let
   local = import ./local.nix;
@@ -8,63 +8,28 @@ let
         config.allowUnfree = true;
       };
   pkgs-unstable =
-    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz")
+    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/cf5e76507c6e.tar.gz")
       {
         config.allowUnfree = true;
       };
 
-  #-------------------------------------------------------------------------------------------------
+  #----------------------------------------------Spotify----------------------------------------------
+
   # Import de spicetify-nix pour spotify
   spicetify-nix = (import (builtins.fetchTarball "https://github.com/edolstra/flake-compat/archive/master.tar.gz") {
     src = builtins.fetchTarball "https://github.com/Gerg-L/spicetify-nix/archive/master.tar.gz";
   }).defaultNix;
-
-  #----------------------------------------------Maths------------------------------------------------
-  # Dérivation Nix pour MF_Tools (Dépendance requise par MF_Algebra)
-  mf-tools = pkgs.python3Packages.buildPythonPackage rec {
-    pname = "MF_Tools";
-    version = "0.1.0";
-    format = "other";
-
-    src = pkgs.fetchFromGitHub {
-      owner = "TheMathematicFanatic";
-      repo = "MF_Tools";
-      rev = "main";
-      hash = "sha256-dDWU/+MZSbzs7Z0HOj8p2oJLPuniqu/0tBvNgoK49q4=";
-    };
-
-    installPhase = ''
-      mkdir -p $out/${pkgs.python3.sitePackages}
-      if [ -d "src/MF_Tools" ]; then
-        cp -r src/MF_Tools $out/${pkgs.python3.sitePackages}/
-      elif [ -d "MF_Tools" ]; then
-        cp -r MF_Tools $out/${pkgs.python3.sitePackages}/
-      else
-        cp -r . $out/${pkgs.python3.sitePackages}/
-      fi
-    '';
-
-    doCheck = false;
-    dontCheckRuntimeDeps = true;
-
-    propagatedBuildInputs = with pkgs.python3Packages; [
-      manim
-    ];
-  };
 in
 
 {
   imports = [
     #./IA/IA-home.nix
-    ./Python
-    spicetify-nix.homeManagerModules.default
-  ];
-  nix.extraOptions = ''
-    tarball-ttl = 0
-  '';
+    #./Python/default.nix
+    spicetify-nix.homeManagerModules.default  ];
   home = {
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
+    sessionVariables = {};
     packages = with pkgs; [
       # Paquets installés uniquement pour la session utilisateur
       #-----------------------------------------------APPs------------------------------------------------
