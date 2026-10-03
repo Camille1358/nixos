@@ -3,13 +3,11 @@
 let
   local = import ./local.nix;
   pkgs-stable-latest =
-    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz")
-      {
+    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz") {
         config.allowUnfree = true;
       };
   pkgs-unstable =
-    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/cf5e76507c6e.tar.gz")
-      {
+    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {
         config.allowUnfree = true;
       };
 

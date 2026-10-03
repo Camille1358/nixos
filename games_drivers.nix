@@ -1,10 +1,11 @@
 { config, lib, pkgs, modulesPath, ... }:
 
 let
-  pkgs-unstable = import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/cf5e76507c6e.tar.gz") {
-    system = pkgs.stdenv.hostPlatform.system;
-    config.allowUnfree = true;
-  };
+  pkgs-stable-latest =
+    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz") {
+        system = pkgs.stdenv.hostPlatform.system;
+        config.allowUnfree = true;
+      };
 in
 {
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
@@ -22,8 +23,8 @@ in
         rocmPackages.hipblas
         rocmPackages.rocm-smi
       ];
-      #package = pkgs-unstable.mesa;
-      #package32 = pkgs-unstable.pkgsi686Linux.mesa;
+      package = pkgs-stable-latest.mesa;
+      package32 = pkgs-stable-latest.pkgsi686Linux.mesa;
     };
     amdgpu.opencl.enable = true; # Active le support OpenCL pour les GPU AMD
   };
