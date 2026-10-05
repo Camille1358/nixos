@@ -23,8 +23,8 @@ in
         rocmPackages.hipblas
         rocmPackages.rocm-smi
       ];
-      package = pkgs-stable-latest.mesa;
-      package32 = pkgs-stable-latest.pkgsi686Linux.mesa;
+      #package = pkgs-stable-latest.mesa;
+      #package32 = pkgs-stable-latest.pkgsi686Linux.mesa;
     };
     amdgpu.opencl.enable = true; # Active le support OpenCL pour les GPU AMD
   };
@@ -42,9 +42,9 @@ in
       gamescopeSession.enable = true;
       remotePlay.openFirewall = true;
       dedicatedServer.openFirewall = true;
-      extraCompatPackages = with pkgs; [
-        proton-ge-bin # Ajoute automatiquement Proton-GE dans Steam
-      ];
+      #extraCompatPackages = with pkgs; [
+      #  proton-ge-bin # Ajoute automatiquement Proton-GE dans Steam
+      #];
     };
     gamemode.enable = true; # gameMode for game stability & performance
     gamescope.enable = true; # gameScope for game stability

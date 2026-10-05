@@ -96,14 +96,6 @@ in
       bookmark
       volumePercentage
     ];
-
-    enabledCustomApps = with spicePkgs.apps; [
-      marketplace
-      {
-        name = "beautiful-lyrics";
-        src = beautifulLyricsApp;
-      }
-    ];
   };
 
 
