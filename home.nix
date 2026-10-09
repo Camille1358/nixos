@@ -2,16 +2,12 @@
 
 let
   local = import ./local.nix;
-  pkgs-stable-latest =
-    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-26.05.tar.gz") {
-        config.allowUnfree = true;
-      };
   pkgs-unstable =
-    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {
-        config.allowUnfree = true;
+    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") { 
+        config.allowUnfree = true; # pkgs-stable-latest remplacer "nixos-unstable.tar.gz" par "nixos-26.05.tar.gz"
       };
 
-  #----------------------------------------------Spotify----------------------------------------------
+# ----------------------------------------------Spotify----------------------------------------------
 
   # Import de spicetify-nix pour spotify
   spicetify-nix = (import (builtins.fetchTarball "https://github.com/edolstra/flake-compat/archive/master.tar.gz") {
@@ -80,11 +76,6 @@ in
 
   programs.spicetify = let
     spicePkgs = spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
-
-    beautifulLyricsApp = pkgs.fetchzip {
-      url = "https://github.com/surfbryce/beautiful-lyrics/releases/download/v5.1.0/beautiful-lyrics.zip";
-      hash = "sha256-qdI220Mf3k3GcBtG1ls12G7M72zwhn90XhdnpvEv5/s=";
-    };
   in {
     enable = true;
     theme = spicePkgs.themes.sleek;

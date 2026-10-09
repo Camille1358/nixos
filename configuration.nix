@@ -131,37 +131,22 @@ in
   #control total de mon flux internet
   services.opensnitch = {
     enable = true;
-    settings = {
-      DefaultAction = "deny";
-      DefaultDuration = "always";
-    };
+
     rules = {
-      "000-allow-nsncd" = {
-        name = "000-allow-nsncd";
+      # Autoriser tout le trafic local (Loopback + LAN)
+      allow-all-local-networks = {
+        name = "allow-all-local-networks";
         enabled = true;
         action = "allow";
         duration = "always";
         operator = {
-          type = "simple";
-          operand = "process";
-          data = "/nix/store/*-nsncd-*/bin/nsncd";
-        };
-      };
-      # Règle pour autoriser les communications locales (127.0.0.1)
-      "001-allow-loopback" = {
-        name = "001-allow-loopback";
-        enabled = true;
-        action = "allow";
-        duration = "always";
-        operator = {
-          type = "simple";
-          operand = "destNetwork";
-          data = "127.0.0.0/8";
+          type = "list";
+          operand = "dest.network";
+          data = "127.0.0.0/8, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12";
         };
       };
     };
   };
-
 
   #----------------------------------------Control-RGB-----------------------------------------
   #services.hardware.openrgb = {
@@ -185,6 +170,7 @@ in
   #  "hid_roccat"
   #  "hid_roccat_vulcan"
   #];
+  
   #--------------------------------------------------------------------------------------------
 
   
