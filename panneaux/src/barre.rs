@@ -54,6 +54,7 @@ pub fn commande(arguments: &[String]) -> Option<i32> {
         "veille-auto" => veille_auto(),
         "capture-ecran" => capture(argument(2) == "ecran"),
         "lanceur" => lanceur(),
+        "defilement" => crate::defilement::lancer(),
         _ => return None,
     }
     Some(0)
@@ -567,60 +568,40 @@ fn veille_auto() {
     lancer(&["systemctl", "suspend"]);
 }
 
-/// Capture d'écran (comme sous KDE) : on prend l'image, puis l'aperçu propose Copier,
-/// Enregistrer, Enregistrer sous… ou Annuler. L'image attend en mémoire vive.
+/// Capture d'écran façon ShareX. L'écran où se trouve la souris est photographié à l'instant
+/// même (tout est figé, sans le curseur), puis :
+///   - zone : on choisit la zone sur cette photo, avec une loupe au pixel près (selection.rs) ;
+///   - écran entier : l'aperçu s'ouvre directement.
+///
+/// L'aperçu propose Copier, Enregistrer, Enregistrer sous…, Texte (OCR) ou Annuler.
+/// L'image attend en mémoire vive : copiée ou annulée, elle ne laisse aucune trace.
 fn capture(ecran_entier: bool) {
+    let ecran = crate::outils::hyprland("monitors")
+        .as_array()
+        .and_then(|m| {
+            m.iter().find(|m| m["focused"] == true).and_then(|m| m["name"].as_str().map(str::to_owned))
+        })
+        .unwrap_or_default();
     let nanos = Local::now().timestamp_nanos_opt().unwrap_or(0);
     let fichier = dossier_session().join(format!("capture-{nanos}.png")).to_string_lossy().into_owned();
-    let prise = if ecran_entier {
-        Command::new("grim").arg(&fichier).status()
-    } else {
-        // Comme ShareX : l'écran est d'abord figé (wayfreeze pose par-dessus tout une image
-        // instantanée de l'écran), puis on choisit la zone sur cette image, aussi longtemps
-        // qu'il le faut : ce qui bouge derrière (vidéo, jeu, discussion) ne change plus rien.
-        let gel = gel_de_l_ecran();
-        let zone = Command::new("slurp").output(); // Échap = rien
-        let prise = match zone {
-            Ok(zone) if zone.status.success() => Command::new("grim")
-                .args(["-g", String::from_utf8_lossy(&zone.stdout).trim(), &fichier])
-                .status(),
-            _ => Err(std::io::Error::other("sélection annulée")),
-        };
-        if let Some(mut gel) = gel {
-            let _ = gel.kill(); // l'écran reprend vie
-            let _ = gel.wait();
-        }
-        prise
-    };
-    if prise.is_ok_and(|s| s.success())
-        && let Ok(moi) = std::env::current_exe()
-    {
-        let _ = Command::new(moi).args(["capture", &fichier]).exec(); // l'aperçu
+    // -l 1 : compression légère, l'image est prête plus vite (elle ne reste pas sur le disque)
+    let mut photo = Command::new("grim");
+    photo.args(["-l", "1"]);
+    if !ecran.is_empty() {
+        photo.args(["-o", &ecran]);
     }
-}
-
-/// Fige l'écran (wayfreeze) et attend que l'image figée soit affichée (1,5 s au plus).
-/// None si le gel n'a pas pu se faire : la capture se fait alors sur l'écran vivant.
-fn gel_de_l_ecran() -> Option<std::process::Child> {
-    let signal = dossier_session().join(format!("capture-gel-{}", std::process::id()));
-    let _ = fs::remove_file(&signal);
-    let mut gel = Command::new("wayfreeze")
-        .args(["--hide-cursor", "--after-freeze-cmd", &format!("touch '{}'", signal.display())])
-        .spawn()
-        .ok()?;
-    for _ in 0..75 {
-        if signal.exists() {
-            let _ = fs::remove_file(&signal);
-            return Some(gel);
-        }
-        if gel.try_wait().ok().flatten().is_some() {
-            return None; // wayfreeze s'est arrêté tout de suite
-        }
-        sleep(Duration::from_millis(20));
+    if !photo.arg(&fichier).status().is_ok_and(|s| s.success()) {
+        return;
     }
-    let _ = gel.kill();
-    let _ = gel.wait();
-    None
+    if let Ok(moi) = std::env::current_exe() {
+        let mut suite = Command::new(moi);
+        if ecran_entier {
+            suite.args(["apercu", &fichier]);
+        } else {
+            suite.args(["selection", &fichier, &ecran]);
+        }
+        let _ = suite.exec();
+    }
 }
 
 /// Lanceur d'applications (Rofi). Relancer la commande le referme ; un clic n'importe où

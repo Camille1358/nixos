@@ -65,6 +65,15 @@ let
   # 2.0 = deux fois plus de lignes par cran. (Firefox ajoute sa propre vitesse par-dessus.)
   defilement = 2.0;
 
+  # Taille de l'interface de Steam (affiché aux vrais pixels de l'écran 4K, donc net) :
+  # 1.5 = même taille que les autres applis, 2.0 = plus grand. Relancer Steam après nrs.
+  steamTaille = 2.0;
+
+  # Défilement automatique façon Windows (clic molette, puis la page défile vers la souris ;
+  # un clic ou Échap arrête), dans toutes les applications... sauf celles-ci, qui ont déjà
+  # le leur (nom de la fenêtre, en minuscules : voir hyprctl clients)
+  defilementAutoSauf = [ "firefox" "discord" ];
+
   # Veille automatique quand tu ne touches à rien (en minutes).
   # L'écran s'éteint toujours. La mise en veille de l'ordinateur, elle, peut être
   # coupée depuis le menu session de la barre (bouton rouge) pour le laisser tourner.
@@ -127,7 +136,7 @@ let
   panneauxTheme = pkgs.writeText "panneaux-theme.json" (builtins.toJSON {
     couleurs = c;
     police = font;
-    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee;
+    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee defilementAutoSauf;
   });
   # Programme en Rust (dossier panneaux/), avec GTK 4. Ses tests automatiques tournent à
   # chaque construction : s'ils échouent, nrs s'arrête au lieu d'installer un panneau cassé.
@@ -154,7 +163,7 @@ let
           pkgs.networkmanager pkgs.util-linux pkgs.bluez pkgs.networkmanagerapplet # réseau
           pkgs.mako # makoctl (notifications)
           pkgs.wireplumber pkgs.slurp config.programs.rofi.finalPackage # volume, capture, lanceur
-          pkgs.wayfreeze pkgs.tesseract # capture : écran figé pendant la sélection, texte (OCR)
+          pkgs.tesseract # capture : texte de l'image (OCR)
           config.programs.hyprlock.package osConfig.programs.hyprland.package
         ]}
       )
@@ -688,7 +697,7 @@ in
       -- Applications XWayland (Steam, jeux Proton) : affichées à la résolution réelle de l'écran
       -- au lieu d'être dessinées en petit puis agrandies (ce qui les rendait floues/pixelisées).
       -- Steam grossit lui-même son interface pour rester lisible à l'échelle 1.5.
-      hl.env("STEAM_FORCE_DESKTOPUI_SCALING", "1.5")
+      hl.env("STEAM_FORCE_DESKTOPUI_SCALING", "${toString steamTaille}") -- réglage "steamTaille" en haut du fichier
       hl.config({ xwayland = { force_zero_scaling = true } })
 
       -- Lancé une fois à l'ouverture de session : seulement le fond d'écran.
@@ -710,8 +719,8 @@ in
           -- enfoncée (bouton du milieu) et bouger la souris fait défiler la page.
           -- Un simple clic molette, sans bouger, reste un clic du milieu (ouvrir un lien dans
           -- un nouvel onglet) ; il ne colle plus rien (misc.middle_click_paste, plus bas).
-          -- Firefox et Discord ont en plus le défilement automatique de Windows : un clic
-          -- molette, puis la page défile toute seule dans la direction de la souris.
+          -- Et un simple clic molette lance le défilement automatique façon Windows (voir les
+          -- raccourcis souris plus bas : "defilement").
           scroll_method = "on_button_down",
           scroll_button = 274, -- 274 = bouton du milieu (la molette)
           -- Distance parcourue par cran de molette : 1.0 = normal, 2.0 = deux fois plus.
@@ -787,6 +796,13 @@ in
         match = { namespace = "^(waybar|rofi|notifications|panneau|alttab)$" },
         blur = true,
         ignore_alpha = 0.3,
+      })
+      -- Capture d'écran : la photo figée de l'écran apparaît d'un coup, sans animation
+      -- (sinon on la verrait glisser ou s'estomper, et l'écran ne paraîtrait pas figé)
+      hl.layer_rule({
+        name = "capture-instantanee",
+        match = { namespace = "^selection$" },
+        no_anim = true,
       })
 
       -- Petites fenêtres utilitaires : flottantes plutôt qu'en mosaïque
@@ -963,6 +979,19 @@ in
         hl.bind("ALT + Escape", function() AltTab.finir(false) end)
         hl.bind("Escape", function() AltTab.finir(false) end)
       end)
+
+      -- Défilement automatique façon Windows (panneaux/src/defilement.rs) : un clic molette le
+      -- démarre (ou l'arrête) ; un clic gauche ou droit, ou Échap, l'arrête aussi. Pour
+      -- l'arrêter, Hyprland efface simplement son fichier témoin : aucun programme n'est lancé
+      -- à chaque clic. "non_consuming" : les applications reçoivent quand même leurs clics.
+      local temoinDefilement = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/defilement-auto"
+      local function arreterDefilement()
+        os.remove(temoinDefilement)
+      end
+      hl.bind("mouse:274", hl.dsp.exec_cmd("${panneau "defilement"}"), { non_consuming = true })
+      hl.bind("mouse:272", arreterDefilement, { non_consuming = true })
+      hl.bind("mouse:273", arreterDefilement, { non_consuming = true })
+      hl.bind("Escape", arreterDefilement, { non_consuming = true })
 
       -- Super + clic gauche = déplacer ; Super + clic droit = redimensionner
       hl.bind(mod .. " + mouse:272", hl.dsp.window.drag(), { mouse = true })

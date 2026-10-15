@@ -7,11 +7,13 @@ edition = "2024"
 publish = false
 
 [dependencies]
-gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+gtk = { package = "gtk4", version = "0.11", features = ["v4_14"] }
 gtk4-layer-shell = "0.8"
 gio-unix = { version = "0.22", features = ["v2_58"] } # DesktopAppInfo : retrouver l'icône d'une application
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
+wayland-client = "0.31" # défilement automatique : souris virtuelle (barre.rs)
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [profile.release]

@@ -15,10 +15,12 @@ mod attrape;
 mod barre;
 mod calendrier;
 mod capture;
+mod defilement;
 mod notifications;
 mod outils;
 mod reduites;
 mod reseau;
+mod selection;
 mod session;
 mod son;
 mod style;
@@ -280,14 +282,30 @@ fn charger_style() {
     }
 }
 
+/// L'état commun, rattaché à une application (l'instance unique, ou la capture d'écran).
+fn nouvel_etat(app: &gio::Application) -> App {
+    Rc::new(Panneaux {
+        app: app.clone(),
+        fenetre: RefCell::new(None),
+        maintien: RefCell::new(None),
+        mode: RefCell::new(None),
+        numero: Cell::new(0),
+        a_la_fermeture: RefCell::new(None),
+        parametre: RefCell::new(None),
+    })
+}
+
 fn main() -> glib::ExitCode {
     let arguments: Vec<String> = std::env::args().collect();
     // Modules de la barre et petites commandes : sans GTK, donc instantanés (barre.rs)
     if let Some(code) = barre::commande(&arguments) {
         return glib::ExitCode::from(code as u8);
     }
-    if arguments.get(1).map(String::as_str) == Some("attrape") {
-        return attrape::lancer(); // indépendant des panneaux : plusieurs peuvent coexister
+    match arguments.get(1).map(String::as_str) {
+        Some("attrape") => return attrape::lancer(), // indépendant des panneaux : plusieurs peuvent coexister
+        // capture d'écran : programme à part, dessiné par la carte graphique (selection.rs)
+        Some("selection" | "apercu") => return selection::principal(&arguments),
+        _ => {}
     }
 
     // Une seule instance tourne à la fois : relancer la commande parle à celle-ci.
@@ -299,15 +317,7 @@ fn main() -> glib::ExitCode {
     let gtk_pret = Rc::new(Cell::new(false));
     let pret = Rc::clone(&gtk_pret);
     app.connect_startup(move |_| pret.set(demarrer_gtk()));
-    let etat: App = Rc::new(Panneaux {
-        app: app.clone(),
-        fenetre: RefCell::new(None),
-        maintien: RefCell::new(None),
-        mode: RefCell::new(None),
-        numero: Cell::new(0),
-        a_la_fermeture: RefCell::new(None),
-        parametre: RefCell::new(None),
-    });
+    let etat = nouvel_etat(&app);
     app.connect_command_line(move |_, ligne| {
         if !gtk_pret.get() {
             return glib::ExitCode::FAILURE;

@@ -16,6 +16,8 @@ pub struct Theme {
     /// Nombre de notifications au survol de la cloche, et cloche animée ou non
     pub notifs_survol: usize,
     pub cloche_animee: bool,
+    /// Applications qui ont leur propre défilement automatique (classes de fenêtre)
+    pub defilement_auto_sauf: Vec<String>,
 }
 
 impl Theme {
@@ -42,6 +44,10 @@ pub static THEME: LazyLock<Theme> = LazyLock::new(|| {
         ordi_en_veille_apres: json["ordiEnVeilleApres"].as_i64().unwrap_or(30),
         notifs_survol: json["notifsSurvol"].as_u64().unwrap_or(10) as usize,
         cloche_animee: json["clocheAnimee"].as_bool().unwrap_or(false),
+        defilement_auto_sauf: json["defilementAutoSauf"]
+            .as_array()
+            .map(|l| l.iter().filter_map(|c| c.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default(),
     }
 });
 

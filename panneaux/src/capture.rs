@@ -90,8 +90,7 @@ impl Capture {
                 .stderr(Stdio::null())
                 .status();
         }
-        notifier("Capture", "Copiée dans le presse-papiers.", false);
-        self.app.fermer();
+        self.app.fermer(); // (pas de notification : on vient soi-même de cliquer sur Copier)
     }
 
     /// OCR : lit le texte de l'image (Tesseract, français et anglais) et le copie dans le
@@ -113,9 +112,6 @@ impl Capture {
                     }
                     let _ = copie.wait();
                 }
-                let debut: String = texte.chars().take(120).collect();
-                let suite = if texte.chars().count() > 120 { "…" } else { "" };
-                notifier("Texte copié dans le presse-papiers", &format!("{debut}{suite}"), false);
                 c.app.fermer();
             },
         );
@@ -123,8 +119,7 @@ impl Capture {
 
     fn ranger(&self, destination: &Path) {
         if deplacer(&self.fichier, destination).is_ok() {
-            self.garder.set(true);
-            notifier("Capture enregistrée", &destination.to_string_lossy(), false);
+            self.garder.set(true); // (pas de notification de réussite : seulement les erreurs)
         } else {
             notifier("Capture", "Impossible d'enregistrer l'image à cet endroit.", true);
         }

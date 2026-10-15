@@ -10,6 +10,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use gtk::prelude::*;
+use gtk::subclass::prelude::*;
 use gtk::{gdk, gdk_pixbuf, gio, glib, pango};
 use serde_json::Value;
 
@@ -360,19 +361,44 @@ pub fn icone_appli(nom: &str, taille: i32) -> Option<gtk::Image> {
     Some(image)
 }
 
-/// Image d'un fichier, mise à l'échelle pour tenir dans largeur × hauteur (agrandie seulement
-/// si `agrandir`). Renvoie aussi la taille d'origine.
+/// Pixels réels par point d'écran (1,5 sur un écran 4K à l'échelle 1,5) : la plus grande
+/// échelle parmi les écrans branchés.
+pub fn densite_ecran() -> f64 {
+    let Some(affichage) = gdk::Display::default() else { return 1.0 };
+    let moniteurs = affichage.monitors();
+    (0..moniteurs.n_items())
+        .filter_map(|i| moniteurs.item(i).and_downcast::<gdk::Monitor>())
+        .map(|m| m.scale())
+        .fold(1.0, f64::max)
+}
+
+/// Image d'un fichier, mise à l'échelle pour tenir dans largeur × hauteur points (agrandie
+/// seulement si `agrandir`). Renvoie aussi la taille d'origine, en pixels.
+///
+/// Nette : l'image est préparée à la densité de l'écran (1,5 pixel par point à l'échelle 1,5)
+/// puis affichée à sa taille en points, si bien qu'un pixel de l'image tombe sur un pixel de
+/// l'écran. Une petite image s'affiche à sa taille réelle, sans être agrandie.
 pub fn image_ajustee(
     chemin: &Path,
     largeur: i32,
     hauteur: i32,
     agrandir: bool,
-) -> Option<(gtk::Picture, i32, i32)> {
+) -> Option<(gtk::Widget, i32, i32)> {
     let (_, l, h) = gdk_pixbuf::Pixbuf::file_info(chemin)?;
-    let echelle = (largeur as f64 / l as f64).min(hauteur as f64 / h as f64);
+    let densite = densite_ecran();
+    let (l_points, h_points) = (l as f64 / densite, h as f64 / densite); // taille réelle, en points
+    let echelle = (largeur as f64 / l_points).min(hauteur as f64 / h_points);
     let echelle = if agrandir { echelle } else { echelle.min(1.0) };
-    let (lr, hr) = (((l as f64 * echelle) as i32).max(1), ((h as f64 * echelle) as i32).max(1));
-    let image = gdk_pixbuf::Pixbuf::from_file_at_scale(chemin, lr, hr, false).ok()?;
+    // Taille affichée (points) et taille de l'image préparée (pixels de l'écran)
+    let (la, ha) =
+        (((l_points * echelle).round() as i32).max(1), ((h_points * echelle).round() as i32).max(1));
+    let (lp, hp) =
+        (((l as f64 * echelle).round() as i32).max(1), ((h as f64 * echelle).round() as i32).max(1));
+    let image = if (lp, hp) == (l, h) {
+        gdk_pixbuf::Pixbuf::from_file(chemin).ok()? // taille réelle : rien à recalculer
+    } else {
+        gdk_pixbuf::Pixbuf::from_file_at_scale(chemin, lp, hp, false).ok()?
+    };
     let format = if image.has_alpha() { gdk::MemoryFormat::R8g8b8a8 } else { gdk::MemoryFormat::R8g8b8 };
     let texture = gdk::MemoryTexture::new(
         image.width(),
@@ -381,7 +407,68 @@ pub fn image_ajustee(
         &image.read_pixel_bytes(),
         image.rowstride() as usize,
     );
-    let photo = gtk::Picture::for_paintable(&texture);
+    // Image "nette" : GTK la place à sa taille en points, et la dessine à partir des pixels
+    // préparés ci-dessus (sinon il prendrait la taille en pixels pour une taille en points,
+    // et l'image serait 1,5 fois trop grande)
+    let photo = gtk::Picture::for_paintable(&ImageNette::new(texture.upcast(), la, ha));
     photo.set_can_shrink(false);
-    Some((photo, l, h))
+    photo.set_halign(gtk::Align::Center);
+    photo.set_valign(gtk::Align::Center);
+    Some((photo.upcast(), l, h))
+}
+
+/// Image dont la taille annoncée à GTK est en points, et le contenu en pixels réels.
+mod nette {
+    use std::cell::{Cell, RefCell};
+
+    use gtk::prelude::*;
+    use gtk::subclass::prelude::*;
+    use gtk::{gdk, glib, graphene};
+
+    #[derive(Default)]
+    pub struct ImageNette {
+        pub texture: RefCell<Option<gdk::Texture>>,
+        pub taille: Cell<(i32, i32)>, // en points
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for ImageNette {
+        const NAME: &'static str = "PanneauxImageNette";
+        type Type = super::ImageNette;
+        type Interfaces = (gdk::Paintable,);
+    }
+
+    impl ObjectImpl for ImageNette {}
+
+    impl PaintableImpl for ImageNette {
+        fn intrinsic_width(&self) -> i32 {
+            self.taille.get().0
+        }
+
+        fn intrinsic_height(&self) -> i32 {
+            self.taille.get().1
+        }
+
+        fn snapshot(&self, snapshot: &gdk::Snapshot, largeur: f64, hauteur: f64) {
+            if let (Some(texture), Some(snapshot)) =
+                (self.texture.borrow().as_ref(), snapshot.downcast_ref::<gtk::Snapshot>())
+            {
+                snapshot
+                    .append_texture(texture, &graphene::Rect::new(0.0, 0.0, largeur as f32, hauteur as f32));
+            }
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct ImageNette(ObjectSubclass<nette::ImageNette>) @implements gdk::Paintable;
+}
+
+impl ImageNette {
+    fn new(texture: gdk::Texture, largeur: i32, hauteur: i32) -> Self {
+        let image: Self = glib::Object::new();
+        image.imp().texture.replace(Some(texture));
+        image.imp().taille.set((largeur, hauteur));
+        image
+    }
 }
