@@ -1,0 +1,22 @@
+--- a/src/protocols/XDGShell.cpp	2026-10-14 08:12:58.644819519 +0200
++++ b/src/protocols/XDGShell.cpp	2026-10-14 08:12:58.646911158 +0200
+@@ -5,6 +5,7 @@
+ #include "../managers/SeatManager.hpp"
+ #include "../managers/ANRManager.hpp"
+ #include "../managers/eventLoop/EventLoopManager.hpp"
++#include "../managers/EventManager.hpp"
+ #include "../helpers/Monitor.hpp"
+ #include "core/Seat.hpp"
+ #include "core/Compositor.hpp"
+@@ -218,6 +219,11 @@
+         m_state.requestsMinimize = true;
+         m_events.stateChanged.emit();
+         m_state.requestsMinimize.reset();
++
++        // Patch local (NixOS /etc/nixos) : annoncer la demande de réduction sur le canal
++        // d'événements, au même format que pour une barre des tâches (ForeignToplevelWlr).
++        if (const auto PWINDOW = m_window.lock(); PWINDOW && PWINDOW->m_isMapped)
++            g_pEventManager->postEvent(SHyprIPCEvent{.event = "minimized", .data = std::format("{:x},1", rc<uintptr_t>(PWINDOW.get()))});
+     });
+ 
+     m_resource->setSetParent([this](CXdgToplevel* r, wl_resource* parentR) {

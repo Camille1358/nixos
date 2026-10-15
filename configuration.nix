@@ -2,35 +2,33 @@
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
-{ config, pkgs, ... }:
+# pkgs-unstable est maintenant fourni par flake.nix (version verrouillée dans flake.lock)
+{ config, pkgs, pkgs-unstable, ... }:
 
 let
   local = import ./local.nix;
-  pkgs-unstable = import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/cf5e76507c6e.tar.gz") {
-    config.allowUnfree = true;
-  };
 in
 
 {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
-      ./alias.nix
-      ./localisation.nix
-      ./games_drivers.nix
-      ./startup.nix
-      #./IA/IA.nix
-      #./wireguard/wireguard.nix
-      <home-manager/nixos>
-    ];
+  # Les autres fichiers (bureau, jeux, IA...) ne sont plus listés ici : chacun est déclaré
+  # dans le dossier modules/, chargé automatiquement. Voir modules/hote.nix.
+  imports = [ ./hardware-configuration.nix ];
 
   nixpkgs.config.allowUnfree = true; # Allow unfree packages
 
   home-manager = { # Home-manager configuration
     useGlobalPkgs = true; # Utilise les paquets du système pour éviter les doublons
     useUserPackages = true; # Installe les paquets directement dans le profil utilisateur
-    users.${local.sysName} = import ./home.nix;
+    backupFileExtension = "avant-hm"; # Si un fichier existe déjà (ex. réglages GTK écrits par KDE), il est renommé au lieu de bloquer
+    # (la configuration de ton utilisateur est assemblée dans modules/hote.nix)
   };
+
+  programs.nix-ld.enable = true;
+  programs.nix-ld.libraries = with pkgs; [
+    stdenv.cc.cc.lib # pour claude
+    zlib
+    glibc 
+  ];
 
   # Bootloader.
   boot = {
@@ -39,17 +37,13 @@ in
       efi.canTouchEfiVariables = true;
     };
     kernel.sysctl = {
-      "vm.max_map_count" = 2147483642; # Augmente la limite de mappage mémoire / Ajustement mémoire pour les gros jeux sous Proton
       "vm.swappiness" = 10; # Réduit l'utilisation du swap pour améliorer les performances
       "net.core.default_qdisc" = "fq"; # Utilise l'algorithme de file d'attente FQ pour améliorer la gestion du trafic réseau
       "net.ipv4.tcp_congestion_control" = "bbr"; # Active l'algorithme de contrôle de congestion BBR pour améliorer les performances réseau
       "vm.dirty_bytes" = 268435456; # 256 Mo, Fluidité système et suppression des micro-gels I/O (E/S Disque)
       "vm.dirty_background_bytes" = 67108864; # 64 Mo
     };
-    kernelParams = [ 
-      "split_lock_detect=off" # Élimination des stutterings
-      "amdgpu.ppfeaturemask=0xffffffff"
-    ]; 
+    # (les réglages du noyau propres aux jeux sont dans games_drivers.nix)
     kernelPackages = pkgs.linuxPackages_latest; # Use latest kernel.
     supportedFilesystems = [ "ntfs" "exfat" ]; 
   };
@@ -84,9 +78,6 @@ in
   };
 
   services = {
-    lact.enable = true; # Active le lact qui surveil la température et la charge du CPU pour une meilleure gestion thermique et énergétique
-    xserver.enable = true; # Enable the X11 windowing system. You can disable this if you're only using the Wayland session.
-    desktopManager.plasma6.enable = true;
     printing.enable = true; # Enable CUPS to print documents.
     pulseaudio.enable = false; # Enable sound with pipewire.
     fstrim.enable = true; # Enable periodic TRIM for SSDs.
@@ -98,14 +89,6 @@ in
       # jack.enable = true; # If you want to use JACK applications, uncomment this
       # media-session.enable = true; # use the example session manager (no others are packaged yet so this is enabled by default, no need to redefine it in your config for now)
     };
-    displayManager = {
-      sddm.enable = true; # Enable the KDE Plasma Desktop Environment.
-      sddm.autoNumlock = true; # Active le numlock dans kde par defaul
-      autoLogin = { # Connexion automatique sans mot de passe
-        enable = true;
-        user = local.sysName;
-      };
-    }; 
   };
 
   security.rtkit.enable = true;
@@ -122,7 +105,11 @@ in
   # Ferme immédiatement le processus fautif en cas d'épuisement de la RAM pour éviter le gel complet du système.
   systemd.oomd.enable = true;
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings = {
+    experimental-features = [ "nix-command" "flakes" ];
+    warn-dirty = false; # pas d'avertissement "Git tree is dirty" si une commande passe quand même par git
+  };
+  programs.git.enable = true; # Requis par les flakes (root doit pouvoir appeler git)
 
   # Gestion de la mémoire et réactivité système
   zramSwap.enable = true;
@@ -170,7 +157,6 @@ in
   #  "hid_roccat"
   #  "hid_roccat_vulcan"
   #];
-  
   #--------------------------------------------------------------------------------------------
 
   

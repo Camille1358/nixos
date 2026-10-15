@@ -2,13 +2,10 @@
 
 let
   mathsPackages = import ./py-maths.nix { inherit pkgs; };
-  iaPackages = import ../IA/py-ia.nix { inherit pkgs; };
 in
 {
+  # (Les outils Python de l'IA ne passent plus par ici : voir IA/paquets.nix.)
   home.packages = [
-    (pkgs.python3.withPackages (ps:
-      (mathsPackages ps)
-      ++ (iaPackages ps)
-    ))
+    (pkgs.python3.withPackages (ps: mathsPackages ps))
   ];
 }

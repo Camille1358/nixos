@@ -1,0 +1,14 @@
+--- a/src/debug/HyprCtl.cpp
++++ b/src/debug/HyprCtl.cpp
+@@ -1104,7 +1104,10 @@
+     // get rid of the dispatch keyword
+     in = in.substr(in.find_first_of(' ') + 1);
+ 
+-    if (Config::mgr()->type() == Config::CONFIG_LUA) {
++    // Patch local (NixOS /etc/nixos) : une commande à l'ancienne, sans parenthèses (ex.
++    // "workspace 2", envoyée par la barre Waybar quand on clique un bureau virtuel), est
++    // traitée par l'ancien mécanisme au lieu d'échouer en Lua.
++    if (Config::mgr()->type() == Config::CONFIG_LUA && in.contains("(")) {
+         // For lua, this is just a wrapper for `eval("hl.dispatch(in)")
+         std::string evalStr = std::format("return hl.dispatch({})", in);
+         auto        luaMgr  = dynamicPointerCast<Config::Lua::CConfigManager>(WP<Config::IConfigManager>(Config::mgr()));

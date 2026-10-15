@@ -5,7 +5,7 @@ let
 in
 
 {
-  networking.wg-quick.interfaces.wg0.autostart = false; # démare au start du pc
+  networking.wg-quick.interfaces.wg0.autostart = true; # démare au start du pc
   environment.systemPackages = [ pkgs.wireguard-tools ]; # on utilise Wireguard qui est un vpn bien et léger
   services.resolved.enable = true; # Activer systemd-resolved pour que WireGuard puisse appliquer le DNS
   networking.firewall.checkReversePath = "loose"; # INDISPENSABLE pour WireGuard sur NixOS (évite que le firewall bloque le tunnel)
