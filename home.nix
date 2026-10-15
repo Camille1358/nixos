@@ -1,25 +1,26 @@
-{ config, pkgs, ... }:
+# pkgs-unstable et spicetify-nix sont maintenant fournis par flake.nix
+{ config, lib, pkgs, pkgs-unstable, spicetify-nix, ... }:
 
 let
   local = import ./local.nix;
-  pkgs-unstable =
-    import (builtins.fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") { 
-        config.allowUnfree = true; # pkgs-stable-latest remplacer "nixos-unstable.tar.gz" par "nixos-26.05.tar.gz"
-      };
 
-# ----------------------------------------------Spotify----------------------------------------------
-
-  # Import de spicetify-nix pour spotify
-  spicetify-nix = (import (builtins.fetchTarball "https://github.com/edolstra/flake-compat/archive/master.tar.gz") {
-    src = builtins.fetchTarball "https://github.com/Gerg-L/spicetify-nix/archive/master.tar.gz";
-  }).defaultNix;
+  # Options de lancement de Discord (et Discord PTB) :
+  # - WebRTCPipeWireCapturer : partage d'écran et de fenêtre sous Wayland ;
+  # - WaylandWindowDecorations : bordures de fenêtre (remis ici car cette liste remplace
+  #   celle fournie par défaut) ;
+  # - les trois "disable-background..." : Discord ne se met plus en veille quand il est en
+  #   arrière-plan ou caché, ce qui coupait parfois les appels.
+  discordOptions = lib.concatStringsSep " " [
+    "--enable-features=WaylandWindowDecorations,WebRTCPipeWireCapturer"
+    "--disable-background-timer-throttling"
+    "--disable-renderer-backgrounding"
+    "--disable-backgrounding-occluded-windows"
+  ];
 in
 
 {
-  imports = [
-    #./IA/IA-home.nix
-    #./Python/default.nix
-    spicetify-nix.homeManagerModules.default  ];
+  # Les autres fichiers utilisateur (bureau, IA, applis) sont déclarés dans modules/.
+  imports = [ spicetify-nix.homeManagerModules.default ];
   home = {
     username = local.sysName; # Informations sur l'utilisateur
     homeDirectory = "/home/${local.sysName}";
@@ -33,7 +34,11 @@ in
       keepassxc
       obs-studio
       fastfetch
-      #kdePackages.plasma-systemmonitor #déjà installer avec kde mais quand je suprimerais kde à ajouter
+      kdePackages.plasma-systemmonitor # plus fourni par KDE Plasma, donc ajouté ici
+      kdePackages.ksystemstats # backend de données de plasma-systemmonitor
+      kdePackages.dolphin
+      kdePackages.spectacle
+      tesseract
       nvtopPackages.amd
       pavucontrol
       sublime3
@@ -53,23 +58,17 @@ in
       #-----------------------------------------------Games-----------------------------------------------
       vesktop
       easyeffects
-      lutris-free
-      heroic
-      protonup-qt
-      lact
-      gamescope
-      goverlay
-      mangohud
+      # (lutris, heroic, mangohud, goverlay, protonup-qt, lact, gamescope : voir games_drivers.nix)
       #---------------------------------------------------------------------------------------------------
       
-      # Discord PTB + Vencord
+      # Discord PTB + Vencord, et Discord + Vencord (options de lancement : voir en haut)
       (discord-ptb.override {
         withVencord = true;
+        commandLineArgs = discordOptions;
       })
-
-      # Discord + Vencord
       (discord.override {
         withVencord = true;
+        commandLineArgs = discordOptions;
       })
     ];
   };

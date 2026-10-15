@@ -1,0 +1,6 @@
+// Règle ajoutée (chargée par Hyprland depuis ~/.config/xkb) : active l'option
+// "verrmaj:ponctuation", définie dans le fichier verrmaj du même dossier.
+! include %S/evdev
+
+! option = types
+  verrmaj:ponctuation = +verrmaj(ponctuation)

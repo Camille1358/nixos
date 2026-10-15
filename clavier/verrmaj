@@ -1,0 +1,30 @@
+// Verr. Maj « comme Windows » : agit comme Maj sur les touches de ponctuation (, ; : ! etc.),
+// en plus des lettres et chiffres, mais jamais sur les flèches (qui n'ont qu'un niveau).
+// Maj pendant Verr. Maj revient au caractère de base, comme sous Windows.
+partial xkb_types "ponctuation" {
+    virtual_modifiers LevelThree;
+    type "FOUR_LEVEL" {
+        modifiers = Shift+Lock+LevelThree;
+        map[None] = Level1;
+        map[Shift] = Level2;
+        map[Lock] = Level2;
+        map[Shift+Lock] = Level1;
+        map[LevelThree] = Level3;
+        map[Shift+LevelThree] = Level4;
+        map[Lock+LevelThree] = Level4;
+        map[Shift+Lock+LevelThree] = Level3;
+        level_name[Level1] = "Base";
+        level_name[Level2] = "Shift";
+        level_name[Level3] = "AltGr";
+        level_name[Level4] = "Shift AltGr";
+    };
+    type "TWO_LEVEL" {
+        modifiers = Shift+Lock;
+        map[None] = Level1;
+        map[Shift] = Level2;
+        map[Lock] = Level2;
+        map[Shift+Lock] = Level1;
+        level_name[Level1] = "Base";
+        level_name[Level2] = "Shift";
+    };
+};

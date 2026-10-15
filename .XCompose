@@ -1,0 +1,12 @@
+# Touches mortes "comme sur Windows".
+# Ce fichier est installé dans ~/.XCompose par desktop-home.nix (après un nrsf).
+# Il faut relancer une application pour qu'elle prenne en compte un changement.
+
+# On garde toutes les combinaisons habituelles (^ puis e = ê, ¨ puis i = ï, ...)
+include "%L"
+
+# Appuyer deux fois sur l'accent l'écrit deux fois (par défaut : une seule fois)
+<dead_circumflex> <dead_circumflex> : "^^"
+<dead_diaeresis> <dead_diaeresis> : "¨¨"
+<dead_grave> <dead_grave> : "``"
+<dead_tilde> <dead_tilde> : "~~"
