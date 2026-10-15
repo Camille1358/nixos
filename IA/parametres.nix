@@ -184,6 +184,23 @@ rec {
   dechargementApres = 900; # secondes
 
   # ---------------------------------------------------------------------------
+  # MÉMOIRE PARTAGÉE (2.1, 2.3) : Engram (décisions, découvertes) et Qdrant (recherche par
+  # le sens). Commune à tous les agents locaux ET à Claude Code (le Claude du cloud, dans
+  # VS Code) : ce que l'un apprend, les autres le retrouvent.
+  # ---------------------------------------------------------------------------
+  memoire = {
+    collection = "memoire-agents"; # collection Qdrant
+    # Modèle qui transforme les textes en vecteurs : multilingue (français compris), 0,22 Go.
+    # Le changer rend introuvables les souvenirs déjà rangés : il faudrait alors vider la
+    # collection, puis relancer "memoire-conversations --tout".
+    modele = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2";
+    # Archive des conversations avec Claude Code (~/.claude/projects) : les nouveaux messages
+    # sont ajoutés à Qdrant à cet intervalle, pour que l'IA locale retrouve ce qui a été dit.
+    conversations = true;
+    conversationsToutesLes = "30min";
+  };
+
+  # ---------------------------------------------------------------------------
   # ENDURANCE (0.4) : plafond de mémoire vive par service
   # ---------------------------------------------------------------------------
   # Un service qui dépasse son plafond est redémarré, au lieu de figer toute la machine.

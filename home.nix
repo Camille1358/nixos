@@ -15,6 +15,9 @@ let
     "--disable-background-timer-throttling"
     "--disable-renderer-backgrounding"
     "--disable-backgrounding-occluded-windows"
+    # Défilement automatique comme sous Windows : clic molette, puis la conversation défile
+    # toute seule vers la souris (désactivé d'office par Chromium sous Linux)
+    "--enable-blink-features=MiddleClickAutoscroll"
   ];
 in
 

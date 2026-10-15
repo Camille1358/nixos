@@ -1,0 +1,87 @@
+--- a/Controllers/RoccatController/RoccatVulcanKeyboardController/RGBController_RoccatVulcanKeyboard.cpp	2026-10-15 08:20:12.920783234 +0200
++++ b/Controllers/RoccatController/RoccatVulcanKeyboardController/RGBController_RoccatVulcanKeyboard.cpp	2026-10-15 08:20:12.924692498 +0200
+@@ -154,6 +154,25 @@
+             layout = ROCCAT_VULCAN_LAYOUT_US;
+     }
+ 
++    /*---------------------------------------------------------*\
++    | Vulcan II MAX: OpenRGB only defines the US (ANSI) layout. |
++    | ISO keyboards (FR, DE, UK) use the Vulcan II addresses    |
++    | for the 108 keys (same key matrix: all 108 US addresses   |
++    | are identical) and the 40 secondary LEDs of the MAX US    |
++    | layout. Other models fall back to US instead of reading a |
++    | missing layout (empty LED list -> out of bounds -> crash).|
++    \*---------------------------------------------------------*/
++    bool max_iso = (pid == ROCCAT_VULCAN_II_MAX_PID)
++                && (keyboard.find(layout) == keyboard.end())
++                && (RoccatVulcanIILayouts.find(layout) != RoccatVulcanIILayouts.end());
++
++    if(!max_iso && keyboard.find(layout) == keyboard.end())
++    {
++        layout = ROCCAT_VULCAN_LAYOUT_US;
++    }
++
++    const layout_info & keys_layout = max_iso ? RoccatVulcanIILayouts[layout] : keyboard[layout];
++
+ 
+     /*---------------------------------------------------------*\
+     | Determine zone sizes                                      |
+@@ -161,7 +180,7 @@
+     | (physically under parent keys) + 16 palm rest LEDs.       |
+     | Secondary LEDs are split into labeled linear zones.       |
+     \*---------------------------------------------------------*/
+-    int keyboard_size = keyboard[layout].size;
++    int keyboard_size = keys_layout.size;
+ 
+     if(pid == ROCCAT_VULCAN_II_MAX_PID)
+     {
+@@ -175,9 +194,9 @@
+     keyboard_zone.leds_max           = keyboard_size;
+     keyboard_zone.leds_count         = keyboard_size;
+     keyboard_zone.matrix_map         = new matrix_map_type;
+-    keyboard_zone.matrix_map->height = keyboard[layout].rows;
+-    keyboard_zone.matrix_map->width  = keyboard[layout].cols;
+-    keyboard_zone.matrix_map->map    = keyboard[layout].matrix_map;
++    keyboard_zone.matrix_map->height = keys_layout.rows;
++    keyboard_zone.matrix_map->width  = keys_layout.cols;
++    keyboard_zone.matrix_map->map    = keys_layout.matrix_map;
+     zones.push_back(keyboard_zone);
+ 
+     if(pid == ROCCAT_VULCAN_II_MAX_PID)
+@@ -246,6 +265,28 @@
+         zones.push_back(palmrest_zone);
+     }
+ 
++    if(max_iso)
++    {
++        for(const led_value & key : keys_layout.led_names)
++        {
++            led new_led;
++            new_led.name  = key.name;
++            new_led.value = key.id;
++            leds.push_back(new_led);
++        }
++
++        const layout_info & max_us = keyboard[ROCCAT_VULCAN_LAYOUT_US];
++
++        for(int led_id = 108; led_id < max_us.size; led_id++)
++        {
++            led new_led;
++            new_led.name  = max_us.led_names[led_id].name;
++            new_led.value = max_us.led_names[led_id].id;
++            leds.push_back(new_led);
++        }
++    }
++    else
++    {
+     for(int led_id = 0; led_id < keyboard[layout].size; led_id++)
+     {
+         led new_led;
+@@ -253,6 +294,7 @@
+         new_led.value = keyboard[layout].led_names[led_id].id;
+         leds.push_back(new_led);
+     }
++    }
+ 
+     SetupColors();
+ 

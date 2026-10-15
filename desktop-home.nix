@@ -121,130 +121,40 @@ let
       in
       builtins.fromJSON ''"\u${haut}\u${bas}"'';
 
-  # Fabrique un script dont tous les outils sont trouvés même quand il est lancé
-  # par la barre (un service systemd, qui n'a pas le même PATH que ton terminal).
-  script = name: text: pkgs.writeShellScript name ''
-    export PATH=${lib.makeBinPath [
-      config.programs.rofi.finalPackage
-      config.programs.hyprlock.package
-      osConfig.programs.hyprland.package # hyprctl
-      pkgs.systemd # systemctl, busctl
-      pkgs.coreutils
-      pkgs.gawk
-      pkgs.gnused
-      pkgs.util-linux # cal
-      pkgs.procps # pkill
-      pkgs.libnotify # notify-send
-      pkgs.wireplumber # wpctl
-      pkgs.grim
-      pkgs.slurp
-      pkgs.wl-clipboard
-      pkgs.jq
-      pkgs.gnugrep
-    ]}:$PATH
-
-    # Si ce fichier existe, la veille automatique de l'ordinateur est désactivée.
-    # Il est dans un dossier vidé à chaque démarrage : la veille auto revient donc
-    # toute seule après un redémarrage.
-    drapeau="$XDG_RUNTIME_DIR/veille-auto-desactivee"
-
-    # Affiche le moment de l'arrêt programmé (en secondes depuis 1970), ou rien s'il n'y en a pas.
-    arret_prevu() {
-      busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
-        org.freedesktop.login1.Manager ScheduledShutdown 2>/dev/null \
-        | awk '$2 != "\"\"" { printf "%d", $3 / 1000000 }'
-    }
-
-    # Demande à la barre de rafraîchir tout de suite le module "custom/etat".
-    rafraichir_barre() { pkill -RTMIN+8 waybar; }
-
-    ${text}
-  '';
-
-  # Capture d'une zone vers le presse-papiers
-  # Capture d'écran (comme sous KDE) : on prend l'image, puis un aperçu propose Copier,
-  # Enregistrer (dans Images/Captures), Enregistrer sous… ou Annuler.
-  # Impr écran = une zone à sélectionner ; Maj+Impr écran = l'écran entier.
-  # L'image attend en mémoire vive : copiée ou annulée, elle ne laisse aucune trace.
-  capture = script "capture" ''
-    fichier="$XDG_RUNTIME_DIR/capture-$(date +%s%N).png"
-    if [ "$1" = ecran ]; then
-      grim "$fichier" || exit 0
-    else
-      zone=$(slurp) || exit 0 # Échap pendant la sélection = rien
-      grim -g "$zone" "$fichier" || exit 0
-    fi
-    exec ${panneaux}/bin/panneaux capture "$fichier"
-  '';
-
-  # Volume (touches multimédia) + petite notification avec jauge
-  volume = script "volume" ''
-    case "$1" in
-      up) wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;;
-      down) wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
-      mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
-    esac
-    etat=$(wpctl get-volume @DEFAULT_AUDIO_SINK@)
-    pct=$(echo "$etat" | awk '{ printf "%d", $2 * 100 }')
-    case "$etat" in
-      *MUTED*) titre="Son coupé" ;;
-      *) titre="Volume $pct %" ;;
-    esac
-    notify-send -a volume -t 1200 \
-      -h string:x-canonical-private-synchronous:volume -h int:value:"$pct" "$titre"
-  '';
-
-  # Appelé par hypridle après "ordiEnVeilleApres" minutes d'inactivité.
-  # Pas de veille non plus tant que la boucle de nuit de l'IA travaille (IA/systeme/nuit.nix).
-  veilleAuto = script "veille-auto" ''
-    [ -e "$drapeau" ] && exit 0
-    systemctl is-active --quiet ia-nuit.service && exit 0
-    systemctl suspend
-  '';
-
-  # Petit témoin dans la barre : n'apparaît que si la veille auto est désactivée
-  # (tasse de café) ou si un arrêt est programmé (sablier + heure).
-  etatBarre = script "etat-barre" ''
-    texte=""
-    bulle=""
-    if [ -e "$drapeau" ]; then
-      texte="${ic "f0f4"}"
-      bulle="Veille automatique de l'ordinateur désactivée"
-    fi
-    prevu=$(arret_prevu)
-    if [ -n "$prevu" ]; then
-      if [ -n "$texte" ]; then
-        texte="$texte  "
-        bulle="$bulle\\n"
-      fi
-      texte="$texte${ic "f253"} $(date -d "@$prevu" +%H:%M)"
-      bulle="$bulle$(date -d "@$prevu" '+Arrêt programmé : %A %d %B à %H:%M')"
-    fi
-    printf '{"text": "%s", "tooltip": "%s"}\n' "$texte" "$bulle"
-  '';
-
-  # Panneaux déroulants de la barre : agenda, menu session, son (programme : panneaux.py).
+  # Panneaux déroulants de la barre : agenda, menu session, son (programme en Rust : dossier panneaux/).
   # Relancer la commande, cliquer en dehors ou appuyer sur Échap referme le panneau.
   hauteurBarre = 44;
   panneauxTheme = pkgs.writeText "panneaux-theme.json" (builtins.toJSON {
     couleurs = c;
     police = font;
-    inherit hauteurBarre ordiEnVeilleApres;
+    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee;
   });
-  panneaux = pkgs.stdenv.mkDerivation {
-    name = "panneaux";
-    dontUnpack = true;
-    nativeBuildInputs = [ pkgs.wrapGAppsHook3 pkgs.gobject-introspection ];
-    buildInputs = [ pkgs.gtk3 pkgs.gtk-layer-shell (pkgs.python3.withPackages (p: [ p.pygobject3 ])) ];
-    installPhase = "install -Dm755 ${./panneaux.py} $out/bin/panneaux";
+  # Programme en Rust (dossier panneaux/), avec GTK 4. Ses tests automatiques tournent à
+  # chaque construction : s'ils échouent, nrs s'arrête au lieu d'installer un panneau cassé.
+  panneaux = pkgs.rustPlatform.buildRustPackage {
+    pname = "panneaux";
+    version = "2.0.0";
+    src = lib.fileset.toSource {
+      root = ./panneaux;
+      fileset = lib.fileset.unions [ ./panneaux/Cargo.toml ./panneaux/Cargo.lock ./panneaux/src ];
+    };
+    cargoLock.lockFile = ./panneaux/Cargo.lock;
+    nativeBuildInputs = [ pkgs.pkg-config pkgs.wrapGAppsHook4 ];
+    buildInputs = [ pkgs.gtk4 pkgs.gtk4-layer-shell ];
     preFixup = ''
       gappsWrapperArgs+=(
         --set PANNEAUX_THEME ${panneauxTheme}
+        # Dessin par le processeur (cairo) plutôt que par la carte graphique : pour de petits
+        # panneaux, 75 Mo de mémoire au lieu de 200, et deux fois moins de calcul à l'ouverture
+        # (mesuré). Le flou et la transparence restent faits par Hyprland.
+        --set-default GSK_RENDERER cairo
         --prefix PATH : ${lib.makeBinPath [
           pkgs.systemd pkgs.pulseaudio pkgs.libnotify pkgs.procps pkgs.pavucontrol pkgs.wl-clipboard
           pkgs.grim # miniatures de l'Alt+Tab
           pkgs.networkmanager pkgs.util-linux pkgs.bluez pkgs.networkmanagerapplet # réseau
           pkgs.mako # makoctl (notifications)
+          pkgs.wireplumber pkgs.slurp config.programs.rofi.finalPackage # volume, capture, lanceur
+          pkgs.wayfreeze pkgs.tesseract # capture : écran figé pendant la sélection, texte (OCR)
           config.programs.hyprlock.package osConfig.programs.hyprland.package
         ]}
       )
@@ -252,76 +162,24 @@ let
   };
   panneau = nom: "${panneaux}/bin/panneaux ${nom}";
 
-  # Lanceur d'applications (Rofi). Relancer la commande le referme ; un clic n'importe où
-  # ailleurs aussi, grâce à l'"attrape-clic" posé sous lui (panneaux.py).
-  lanceur = script "lanceur" ''
-    if pgrep -x rofi >/dev/null; then
-      pkill -x rofi
-      exit 0
-    fi
-    ${panneaux}/bin/panneaux attrape &
-    attrape=$!
-    rofi -show drun
-    kill "$attrape" 2>/dev/null
-  '';
-
-  # Mesures de la barre : processeur, carte graphique, mémoire, températures (capteurs.sh)
-  capteurs = script "capteurs" (''
-    export ICONE_CPU="${ic "f2db"}" ICONE_GPU="${ic "f02ae"}" ICONE_RAM="${ic "f035b"}" ICONE_TEMP="${ic "f2c9"}"
-  '' + builtins.readFile ./capteurs.sh);
-
-  # Cloche des notifications (journal tenu par le service "journal-notifications", startup.nix).
-  #   icône  : simple cloche ; cloche qui sonne s'il y a des notifications arrivées depuis la
-  #            dernière ouverture du panneau ; cloche barrée en "Ne pas déranger"
-  #   survol : seulement les dernières notifications, groupées par application, avec l'heure
-  #            (les non lues marquées d'un point). Les réglages sont dans le panneau (clic).
-  notifsBarre = script "notifs-barre" ''
-    dossier="''${XDG_STATE_HOME:-$HOME/.local/state}/notifications"
-    journal="$dossier/journal.jsonl"
-    vu=$(cat "$dossier/vu" 2>/dev/null || echo 0)
-    nouvelles=0
-    [ -s "$journal" ] && nouvelles=$(jq -s --argjson vu "$vu" '[.[] | select(.t > $vu)] | length' "$journal" 2>/dev/null || echo 0)
-
-    # Les ${toString notifsSurvol} plus récentes ; applications de la plus récente à la plus
-    # ancienne. Heure seule pour aujourd'hui, date + heure avant. (@html : texte sûr pour l'infobulle)
-    liste=""
-    [ -s "$journal" ] && liste=$(jq -rs --argjson vu "$vu" '
-      (now | strflocaltime("%d/%m")) as $jour
-      | def heure: (.t | strflocaltime("%d/%m")) as $j
-          | if $j == $jour then (.t | strflocaltime("%H:%M")) else $j + " " + (.t | strflocaltime("%H:%M")) end;
-        def ligne: ((.texte // "") | gsub("\\s+"; " ") | if length > 70 then .[:69] + "…" else . end) as $txt
-          | (if .t > $vu then "<span color=\"#${c.cyan}\">●</span>" else " " end)
-            + " <span color=\"#${c.muted}\">" + heure + "</span>  " + ((.titre // "") | @html)
-            + (if $txt != "" then "\n         <span color=\"#${c.muted}\">" + ($txt | @html) + "</span>" else "" end);
-      sort_by(-.t) | .[:${toString notifsSurvol}]
-      | group_by(.app) | sort_by(-(map(.t) | max))
-      | map("<b>" + (.[0].app | @html) + "</b>\n" + (sort_by(-.t) | map(ligne) | join("\n")))
-      | join("\n\n")
-    ' "$journal" 2>/dev/null)
-
-    if ${pkgs.mako}/bin/makoctl mode 2>/dev/null | grep -qx do-not-disturb; then
-      icone="${ic "f009b"}"; classes='["dnd"]'
-    elif [ "$nouvelles" -gt 0 ]; then
-      icone="${ic "f009e"}"; classes='["nonlues"${lib.optionalString clocheAnimee '', "animee"''}]'
-    else
-      icone="${ic "f009a"}"; classes='[]'
-    fi
-    vide="Aucune notification"
-    jq -cn --arg t "$icone" --arg b "''${liste:-$vide}" --argjson c "$classes" '{text: $t, tooltip: $b, class: $c}'
-  '';
-
-  # Témoin de la barre : nombre de fenêtres réduites (invisible s'il n'y en a aucune).
-  reduitesBarre = script "reduites-barre" ''
-    filtre='[.[] | select(.workspace.name == "special:reduites")]'
-    fenetres=$(hyprctl -j clients | ${pkgs.jq}/bin/jq -c "$filtre")
-    n=$(echo "$fenetres" | ${pkgs.jq}/bin/jq 'length')
-    if [ "$n" -gt 0 ]; then
-      bulle=$(echo "$fenetres" | ${pkgs.jq}/bin/jq -r '[.[].title] | join("\n")')
-      ${pkgs.jq}/bin/jq -cn --arg t "${ic "f2d0"}  $n" --arg b "$bulle" '{text: $t, tooltip: $b}'
-    else
-      echo '{"text": ""}'
-    fi
-  '';
+  # Modules de la barre et petites commandes du bureau : le même programme Rust, sans fenêtre
+  # (panneaux/src/barre.rs) — instantané, sans aucun script.
+  #   capteurs cpu|gpu|ram|temp  mesures de la barre (infobulles : applications les plus gourmandes)
+  #   notifs                     cloche des notifications (survol : les dernières, par application)
+  #   etat                       témoin "veille auto désactivée" (café) / "arrêt programmé" (sablier)
+  #   reduites-barre             témoin des fenêtres réduites
+  #   volume up|down|mute        touches multimédia + petite notification avec jauge
+  #   veille-auto                appelé par hypridle (pas de veille si désactivée ou si l'IA travaille)
+  #   capture-ecran [ecran]      capture façon KDE : zone (ou écran entier), puis aperçu
+  #   lanceur                    Rofi ; relancer le referme, un clic ailleurs aussi (attrape-clic)
+  capteurs = panneau "capteurs";
+  notifsBarre = panneau "notifs";
+  etatBarre = panneau "etat";
+  reduitesBarre = panneau "reduites-barre";
+  volume = panneau "volume";
+  veilleAuto = panneau "veille-auto";
+  capture = panneau "capture-ecran";
+  lanceur = panneau "lanceur";
 
   # Apparence du lanceur d'applications (Rofi)
   rofiTheme = pkgs.writeText "neon.rasi" ''
@@ -470,7 +328,7 @@ in
 
       # Clic sur CPU ou RAM = moniteur système
       # Processeur, carte graphique, mémoire : survol = détail + applications les plus gourmandes.
-      # Clic = moniteur système. Les mesures viennent de capteurs.sh.
+      # Clic = moniteur système. Les mesures viennent de panneaux/src/barre.rs.
       "custom/cpu" = {
         exec = "${capteurs} cpu";
         return-type = "json";
@@ -491,7 +349,7 @@ in
       };
 
       # Température de la carte graphique : la couleur suit la chaleur (vert, jaune, orange,
-      # rouge ; seuils dans capteurs.sh). Survol = détail, avec la température du processeur.
+      # rouge ; seuils dans panneaux/src/barre.rs). Survol = détail, avec la température du processeur.
       "custom/temp" = {
         exec = "${capteurs} temp";
         return-type = "json";
@@ -693,7 +551,7 @@ in
           border-radius: 0 10px 10px 0;
       }
 
-      /* Couleur des températures selon la chaleur (classe donnée par capteurs.sh) */
+      /* Couleur des températures selon la chaleur (classe donnée par panneaux/src/barre.rs) */
       #custom-temp.froid { color: @green; }
       #custom-temp.tiede { color: @yellow; }
       #custom-temp.chaud { color: @orange; }
@@ -821,6 +679,12 @@ in
       hl.env("XCURSOR_THEME", "Adwaita")
       hl.env("XCURSOR_SIZE", "24")
 
+      -- Thème des applications Qt/KDE (Dolphin...) : réglé dans le bloc "qt" plus bas.
+      -- Ces variables doivent être données ici : la session démarre sans lire le fichier
+      -- de variables de home-manager, et les applis lancées par Hyprland n'en héritaient pas.
+      hl.env("QT_QPA_PLATFORMTHEME", "${config.home.sessionVariables.QT_QPA_PLATFORMTHEME}")
+      hl.env("QT_STYLE_OVERRIDE", "${config.home.sessionVariables.QT_STYLE_OVERRIDE}")
+
       -- Applications XWayland (Steam, jeux Proton) : affichées à la résolution réelle de l'écran
       -- au lieu d'être dessinées en petit puis agrandies (ce qui les rendait floues/pixelisées).
       -- Steam grossit lui-même son interface pour rester lisible à l'échelle 1.5.
@@ -842,10 +706,12 @@ in
           kb_options = "${osConfig.services.xserver.xkb.options},verrmaj:ponctuation", -- verrmaj : voir clavier/verrmaj
           numlock_by_default = true,
 
-          -- Défilement "à la Firefox" dans TOUTES les applications : maintenir la molette
+          -- Défilement au clic molette dans TOUTES les applications : maintenir la molette
           -- enfoncée (bouton du milieu) et bouger la souris fait défiler la page.
-          -- Un simple clic molette, sans bouger, reste un clic normal (coller, ouvrir un
-          -- lien dans un nouvel onglet...).
+          -- Un simple clic molette, sans bouger, reste un clic du milieu (ouvrir un lien dans
+          -- un nouvel onglet) ; il ne colle plus rien (misc.middle_click_paste, plus bas).
+          -- Firefox et Discord ont en plus le défilement automatique de Windows : un clic
+          -- molette, puis la page défile toute seule dans la direction de la souris.
           scroll_method = "on_button_down",
           scroll_button = 274, -- 274 = bouton du milieu (la molette)
           -- Distance parcourue par cran de molette : 1.0 = normal, 2.0 = deux fois plus.
@@ -901,6 +767,9 @@ in
           disable_splash_rendering = true,
           focus_on_activate = true, -- une appli qui demande l'attention passe au premier plan
           vrr = 2, -- fréquence d'image variable (FreeSync), seulement en plein écran
+          -- Clic molette : plus de "coller" (sélection collée au clic du milieu, habitude Linux).
+          -- Le clic molette sert au défilement, comme sous Windows (voir "input" plus haut).
+          middle_click_paste = false,
         },
       })
 
@@ -1004,7 +873,7 @@ in
       -- suivante (Maj+Tab : précédente, ou les flèches), relâcher Alt pour y aller ; Échap
       -- annule. Les fenêtres sont dans l'ordre où tu les as utilisées, avec leurs miniatures.
       -- La logique est ici, dans Hyprland (instantanée, même en tapotant vite) ; l'affichage
-      -- des miniatures est fait par panneaux.py, qui suit la sélection.
+      -- des miniatures est fait par le programme panneaux (panneaux/src/alttab.rs), qui suit la sélection.
       -- -----------------------------------------------------------------------
       AltTab = { liste = {}, index = 1, actif = false, session = 0 }
       local fichierAltTab = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/alttab-choix"
@@ -1067,7 +936,7 @@ in
         altTabEcrire(AltTab.liste[AltTab.index].address)
       end
 
-      -- Clic sur une miniature (appelé par panneaux.py)
+      -- Clic sur une miniature (appelé par le programme panneaux)
       function AltTab.choisir(adresse)
         for i, w in ipairs(AltTab.liste) do
           if w.address == adresse then AltTab.index = i end
@@ -1317,10 +1186,24 @@ in
   # de la barre, et un clic sur cette icône permet de la ramener.
   dconf.settings."org/gnome/desktop/wm/preferences".button-layout = ":minimize,maximize,close";
 
+  # Applications Qt et KDE (Dolphin...) : comme sous KDE Plasma, elles lisent leurs couleurs
+  # dans ~/.config/kdeglobals (plateforme "kde", style Breeze). L'ancien réglage "adwaita"
+  # ignorait ce fichier et imposait une palette qui donnait des lignes blanches une sur deux.
   qt = {
     enable = true;
-    platformTheme.name = "adwaita";
-    style.name = "adwaita-dark";
+    platformTheme.name = "kde";
+    style.name = "breeze";
+  };
+  # Couleurs "système" des applications KDE/Qt : Breeze sombre (le même que sous Plasma).
+  # Les applis réglées sur "couleur du système" sont donc sombres d'office.
+  xdg.configFile."kdeglobals" = {
+    force = true; # remplace l'ancien fichier laissé par Plasma
+    # (le fichier Breeze sombre contient déjà [General] ColorScheme=BreezeDark)
+    text = builtins.readFile "${pkgs.kdePackages.breeze}/share/color-schemes/BreezeDark.colors" + ''
+
+      [KDE]
+      LookAndFeelPackage=org.kde.breezedark.desktop
+    '';
   };
 
   # --- Touches mortes (^ ¨) ----------------------------------------------------

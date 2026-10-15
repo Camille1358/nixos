@@ -67,4 +67,9 @@ in
 
   # Gestionnaire de fichiers : Dolphin (installé dans home.nix). gvfs : corbeille, clés USB.
   services.gvfs.enable = true;
+
+  # Index des thèmes d'icônes (icon-theme.cache), pour le système et ton profil. Sans eux,
+  # chaque application GTK parcourt des milliers de dossiers d'icônes à son démarrage.
+  # (Activé d'office seulement avec X11 ; ici tout est Wayland, d'où ce réglage.)
+  gtk.iconCache.enable = true;
 }

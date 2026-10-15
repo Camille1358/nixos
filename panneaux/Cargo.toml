@@ -1,0 +1,22 @@
+# Panneaux de la barre et du bureau (agenda, session, son, réseau, notifications,
+# Alt+Tab...). Construit par Nix : voir "panneaux" dans desktop-home.nix.
+[package]
+name = "panneaux"
+version = "2.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+gtk4-layer-shell = "0.8"
+gio-unix = { version = "0.22", features = ["v2_58"] } # DesktopAppInfo : retrouver l'icône d'une application
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
