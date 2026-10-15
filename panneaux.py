@@ -54,7 +54,7 @@ MARGE = 12  # espace autour du panneau et à l'intérieur, en pixels
 # (éteindre, verrouiller, couper le réseau, connecter un appareil...) sont seulement
 # affichées, jamais exécutées. Les commandes qui ne font que lire restent permises.
 ESSAI = bool(os.environ.get("PANNEAUX_ESSAI"))
-COMMANDES_SENSIBLES = ("systemctl", "hyprlock")
+COMMANDES_SENSIBLES = ("systemctl", "systemd-run", "hyprlock")
 # Pour ces outils, seuls ces mots-là (dans la commande) changent quelque chose :
 VERBES_SENSIBLES = {
     "hyprctl": {"dispatch", "eval"},
@@ -1275,6 +1275,24 @@ def ne_pas_deranger():
     return "do-not-disturb" in executer("makoctl", "mode")[1].split()
 
 
+# "Ne pas déranger" pour une durée choisie : un minuteur systemd le désactive à l'heure dite
+# (sur l'horloge réelle : il se déclenche aussi si l'ordinateur était en veille à ce moment-là).
+# L'heure de fin est notée dans un fichier, pour l'afficher dans le panneau.
+FIN_DND = os.path.join(DOSSIER_NOTIFS, "ne-pas-deranger-fin")
+MINUTEUR_DND = "fin-ne-pas-deranger"
+DND_MATIN = 8  # "jusqu'à demain matin" = demain à cette heure-là
+
+
+def fin_ne_pas_deranger():
+    """Heure de fin du "Ne pas déranger" (datetime), ou None s'il dure jusqu'à désactivation."""
+    try:
+        with open(FIN_DND, encoding="utf-8") as f:
+            fin = datetime.fromtimestamp(int(f.read().strip()))
+    except (OSError, ValueError):
+        return None
+    return fin if fin > datetime.now() else None
+
+
 class Notifications(Gtk.Box):
     PAR_APPLI = 5  # notifications affichées par application (les plus récentes)
 
@@ -1282,6 +1300,7 @@ class Notifications(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.app = app
         self.set_size_request(450, -1)
+        self.choix_duree = False  # la rangée "pendant combien de temps ?" est-elle ouverte
         self.construire()
         # Tout est maintenant "vu" : la cloche de la barre n'affiche plus de nombre
         os.makedirs(DOSSIER_NOTIFS, exist_ok=True)
@@ -1302,6 +1321,23 @@ class Notifications(Gtk.Box):
                                *(["choisi"] if dnd else []),
                                icone=ICONES["cloche_barree" if dnd else "cloche"]), False, False, 0)
         self.add(entete)
+
+        if dnd:  # rappel : jusqu'à quand
+            fin = fin_ne_pas_deranger()
+            if fin is None:
+                quand = "jusqu'à ce que tu le désactives"
+            elif fin.date() == datetime.now().date():
+                quand = f"jusqu'à {fin:%H:%M}"
+            else:
+                quand = f"jusqu'à demain {fin:%H:%M}"
+            self.add(etiquette(f"Ne pas déranger activé, {quand}.", "discret"))
+        elif self.choix_duree:  # pendant combien de temps ?
+            self.add(etiquette("Ne pas déranger pendant :", "discret"))
+            durees = Gtk.Box(spacing=4)
+            for texte, fin in (("1 heure", self.dans(hours=1)), ("4 heures", self.dans(hours=4)),
+                               ("Jusqu'à demain", self.demain_matin()), ("Toujours", None)):
+                durees.add(bouton(texte, lambda fin=fin: self.activer_ne_pas_deranger(fin)))
+            self.add(durees)
 
         notifications = lire_notifications()
         if not notifications:
@@ -1364,10 +1400,53 @@ class Notifications(Gtk.Box):
             boite.add(corps)
         return boite
 
+    @staticmethod
+    def dans(**duree):
+        return datetime.now() + timedelta(**duree)
+
+    @staticmethod
+    def demain_matin():
+        demain = datetime.now() + timedelta(days=1)
+        return demain.replace(hour=DND_MATIN, minute=0, second=0, microsecond=0)
+
     def basculer_ne_pas_deranger(self):
-        executer("makoctl", "mode", "-t", "do-not-disturb")
+        """Activé : le désactiver. Désactivé : demander pendant combien de temps."""
+        if ne_pas_deranger():
+            self.desactiver_ne_pas_deranger()
+        else:
+            self.choix_duree = not self.choix_duree
+            self.construire()
+
+    def activer_ne_pas_deranger(self, fin):
+        """fin = datetime de fin, ou None pour "jusqu'à désactivation"."""
+        self.arreter_minuteur()
+        executer("makoctl", "mode", "-a", "do-not-disturb")
+        if fin is not None:
+            with open(FIN_DND, "w", encoding="utf-8") as f:
+                f.write(str(int(fin.timestamp())))
+            # Chemins complets : le minuteur ne connaît pas le PATH du panneau
+            outils = [shutil.which(o) or o for o in ("makoctl", "pkill")]
+            executer("systemd-run", "--user", "--collect", f"--unit={MINUTEUR_DND}",
+                     f"--on-calendar={fin:%Y-%m-%d %H:%M:%S}", "--timer-property=AccuracySec=1s",
+                     shutil.which("sh") or "sh", "-c",
+                     f"{outils[0]} mode -r do-not-disturb; {outils[1]} -RTMIN+10 waybar")
+        self.choix_duree = False
         self.rafraichir_barre()
         self.construire()
+
+    def desactiver_ne_pas_deranger(self):
+        self.arreter_minuteur()
+        executer("makoctl", "mode", "-r", "do-not-disturb")
+        self.rafraichir_barre()
+        self.construire()
+
+    @staticmethod
+    def arreter_minuteur():
+        executer("systemctl", "--user", "stop", f"{MINUTEUR_DND}.timer")
+        try:
+            os.remove(FIN_DND)
+        except OSError:
+            pass
 
     def effacer(self, appli):
         ecrire_notifications([n for n in lire_notifications()
