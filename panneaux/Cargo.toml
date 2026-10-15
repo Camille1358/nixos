@@ -14,6 +14,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
 wayland-client = "0.31" # défilement automatique : souris virtuelle (barre.rs)
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols = { version = "0.32", features = ["client"] } # taille exacte de l'icône du défilement
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [profile.release]

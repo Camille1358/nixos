@@ -15,10 +15,25 @@ let
     "--disable-background-timer-throttling"
     "--disable-renderer-backgrounding"
     "--disable-backgrounding-occluded-windows"
-    # Défilement automatique comme sous Windows : clic molette, puis la conversation défile
-    # toute seule vers la souris (désactivé d'office par Chromium sous Linux)
-    "--enable-blink-features=MiddleClickAutoscroll"
   ];
+
+  # Clients Discord alternatifs (Vesktop, Equibop) : ils n'ont pas d'option pour leurs
+  # paramètres de lancement ; on les enveloppe pour leur donner les mêmes que Discord.
+  avecOptionsDiscord = paquet: nom: pkgs.symlinkJoin {
+    name = "${nom}-avec-options";
+    paths = [ paquet ];
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postBuild = "wrapProgram $out/bin/${nom} --add-flags ${lib.escapeShellArg discordOptions}";
+  };
+  equibopAvecOptions = avecOptionsDiscord pkgs.equibop "equibop";
+
+  # Deuxième Equibop, sur la branche PTB de Discord : son propre dossier de données (ses comptes,
+  # ses réglages), si bien qu'il tourne en même temps que le premier. Menu : "Equibop PTB".
+  equibopPtb = pkgs.writeShellScriptBin "equibop-ptb" ''
+    dossier="''${XDG_CONFIG_HOME:-$HOME/.config}/equibop-ptb"
+    export EQUICORD_USER_DATA_DIR="$dossier"
+    exec ${equibopAvecOptions}/bin/equibop --user-data-dir="$dossier" "$@"
+  '';
 in
 
 {
@@ -59,7 +74,6 @@ in
       pkgs-unstable.brave
       google-chrome
       #-----------------------------------------------Games-----------------------------------------------
-      vesktop
       easyeffects
       # (lutris, heroic, mangohud, goverlay, protonup-qt, lact, gamescope : voir games_drivers.nix)
       #---------------------------------------------------------------------------------------------------
@@ -73,8 +87,45 @@ in
         withVencord = true;
         commandLineArgs = discordOptions;
       })
+
+      # Clients Discord alternatifs, compilés depuis leur code source par nixpkgs (vérifiés le
+      # 15/10/2026 : aucun signalement de malveillance). Vesktop : par l'équipe de Vencord.
+      # Equibop : variante d'Equicord (plus de 300 extensions ; n'activer que celles dont on a
+      # besoin). Legcord n'est PAS installé : deux failles critiques sans correctif
+      # (CVE-2026-105293 et CVE-2026-105294, versions 1.1.0 à 1.3.0).
+      (avecOptionsDiscord vesktop "vesktop")
+      equibopAvecOptions
+      equibopPtb # deuxième Equibop (branche PTB), voir plus haut
+      # Spotify avec sa barre de titre (réduire, agrandir, fermer) : comme Discord, il ne la
+      # dessine sous Wayland que si on le lui demande. Réduire = la fenêtre va dans la barre du
+      # haut, à côté des autres. (Prioritaire sur le lanceur de spicetify, qui reste utilisé.)
+      (lib.hiPrio (pkgs.writeShellScriptBin "spotify" ''
+        exec ${config.programs.spicetify.spicedSpotify}/bin/spotify --enable-features=WaylandWindowDecorations "$@"
+      ''))
     ];
   };
+
+  # Deuxième Equibop dans le lanceur d'applications (Super+Espace)
+  xdg.desktopEntries.equibop-ptb = {
+    name = "Equibop PTB";
+    genericName = "Discord (PTB)";
+    exec = "${equibopPtb}/bin/equibop-ptb %U";
+    icon = "equibop";
+    categories = [ "Network" "InstantMessaging" ];
+  };
+  # Son dossier, préparé une seule fois (ensuite, tes réglages faits dans l'appli sont gardés) :
+  # branche PTB, pas de Rich Presence (le premier Equibop s'en charge déjà ; deux à la fois se
+  # disputeraient le même port), et une copie des extensions et thèmes Equicord du premier.
+  home.activation.equibopPtb = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    ptb="${config.xdg.configHome}/equibop-ptb"
+    if [ ! -e "$ptb" ]; then
+      run mkdir -p "$ptb"
+      run cp -r --no-preserve=mode "${config.xdg.configHome}/equibop/settings" "$ptb/" 2>/dev/null || true
+      run cp -r --no-preserve=mode "${config.xdg.configHome}/equibop/themes" "$ptb/" 2>/dev/null || true
+      run sh -c 'echo "{\"discordBranch\": \"ptb\", \"minimizeToTray\": true, \"arRPC\": false}" > "$1/settings.json"' _ "$ptb"
+      run sh -c 'echo "{\"firstLaunch\": false}" > "$1/state.json"' _ "$ptb"
+    fi
+  '';
 
   programs.spicetify = let
     spicePkgs = spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
@@ -107,7 +158,9 @@ in
     profiles.${local.sysName} = {
       isDefault = true;
       settings = {
-        "general.autoScroll" = true; # Active le défilement automatique pour une meilleure fluidité de navigation
+        # Défilement automatique : celui du système (clic molette, desktop-home.nix), le même que
+        # partout ailleurs ; celui de Firefox ferait défiler la page deux fois.
+        "general.autoScroll" = false;
         "privacy.resistFingerprinting" = false; # Protection contre le fingerprinting (+++FingerprintingResist, mais lourd sur l'ergo)
         "privacy.fingerprintingProtection" = false; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
         "dom.security.https_only_mode" = true; # Mode HTTPS (+confidentialité & sécurité)

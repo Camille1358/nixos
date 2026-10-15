@@ -680,6 +680,7 @@ dependencies = [
  "regex",
  "serde_json",
  "wayland-client",
+ "wayland-protocols",
  "wayland-protocols-wlr",
 ]
 

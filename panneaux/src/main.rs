@@ -18,6 +18,7 @@ mod capture;
 mod defilement;
 mod notifications;
 mod outils;
+mod partage;
 mod reduites;
 mod reseau;
 mod selection;
@@ -132,6 +133,7 @@ impl Panneaux {
             "reduites" => reduites::creer(self),
             "capture" => capture::creer(self),
             "reseau" => reseau::creer(self),
+            "partage" => partage::creer(self),
             _ => notifications::creer(),
         };
         marges(&vue, MARGE);
@@ -140,9 +142,10 @@ impl Panneaux {
         let cadre = outils::boite(true, 0);
         cadre.set_widget_name("panneau");
         cadre.append(&vue);
-        if mode == "capture" {
+        if matches!(mode, "capture" | "partage") {
             cadre.set_halign(gtk::Align::Center);
             cadre.set_valign(gtk::Align::Center);
+            cadre.set_vexpand(true); // sinon le cadre reste collé en haut de l'écran
         } else {
             cadre.set_halign(gtk::Align::End);
             cadre.set_valign(gtk::Align::Start);
@@ -305,6 +308,8 @@ fn main() -> glib::ExitCode {
         Some("attrape") => return attrape::lancer(), // indépendant des panneaux : plusieurs peuvent coexister
         // capture d'écran : programme à part, dessiné par la carte graphique (selection.rs)
         Some("selection" | "apercu") => return selection::principal(&arguments),
+        // sélecteur du partage d'écran, lancé par le portail de Hyprland (partage.rs)
+        Some("partage") => return partage::principal(&arguments),
         _ => {}
     }
 

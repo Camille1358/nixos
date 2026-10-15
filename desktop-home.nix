@@ -69,10 +69,14 @@ let
   # 1.5 = même taille que les autres applis, 2.0 = plus grand. Relancer Steam après nrs.
   steamTaille = 2.0;
 
-  # Défilement automatique façon Windows (clic molette, puis la page défile vers la souris ;
-  # un clic ou Échap arrête), dans toutes les applications... sauf celles-ci, qui ont déjà
-  # le leur (nom de la fenêtre, en minuscules : voir hyprctl clients)
-  defilementAutoSauf = [ "firefox" "discord" ];
+  # Défilement automatique façon Windows, dans TOUTES les applications : un clic molette (sans
+  # rester appuyé), puis la page défile toute seule vers la souris, sans fin ; un clic ou Échap
+  # arrête. Vitesse : pages par seconde quand la souris est à 10 points du point de départ
+  # (à 20 points : deux fois plus vite). Une "page" = la hauteur de la fenêtre.
+  defilementVitesse = 1.0;
+  # Applications à laisser à leur propre défilement automatique (nom de la fenêtre, en
+  # minuscules : voir hyprctl clients). Vide : le même défilement partout.
+  defilementAutoSauf = [ ];
 
   # Veille automatique quand tu ne touches à rien (en minutes).
   # L'écran s'éteint toujours. La mise en veille de l'ordinateur, elle, peut être
@@ -136,7 +140,7 @@ let
   panneauxTheme = pkgs.writeText "panneaux-theme.json" (builtins.toJSON {
     couleurs = c;
     police = font;
-    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee defilementAutoSauf;
+    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee defilementAutoSauf defilementVitesse;
   });
   # Programme en Rust (dossier panneaux/), avec GTK 4. Ses tests automatiques tournent à
   # chaque construction : s'ils échouent, nrs s'arrête au lieu d'installer un panneau cassé.
@@ -170,6 +174,10 @@ let
     '';
   };
   panneau = nom: "${panneaux}/bin/panneaux ${nom}";
+
+  # Partage d'écran : notre sélecteur (panneaux/src/partage.rs) remplace la fenêtre blanche du
+  # portail de Hyprland. Le portail lance un programme sans argument, d'où ce petit lanceur.
+  selecteurPartage = pkgs.writeShellScript "selecteur-partage" ''exec ${panneaux}/bin/panneaux partage "$@"'';
 
   # Modules de la barre et petites commandes du bureau : le même programme Rust, sans fenêtre
   # (panneaux/src/barre.rs) — instantané, sans aucun script.
@@ -801,7 +809,7 @@ in
       -- (sinon on la verrait glisser ou s'estomper, et l'écran ne paraîtrait pas figé)
       hl.layer_rule({
         name = "capture-instantanee",
-        match = { namespace = "^selection$" },
+        match = { namespace = "^(selection|defilement)$" }, -- capture, icône du défilement automatique
         no_anim = true,
       })
 
@@ -822,7 +830,7 @@ in
       hl.window_rule({ name = "pas-de-veille", match = { class = ".*" }, idle_inhibit = "fullscreen" })
       -- Discord en arrière-plan : Hyprland continue de lui envoyer des images même quand il
       -- n'est pas visible. Sans cela, Discord se met en "veille" et les appels peuvent couper.
-      hl.window_rule({ name = "discord-eveille", match = { class = "^(discord|discordptb)$" }, render_unfocused = true })
+      hl.window_rule({ name = "discord-eveille", match = { class = "^(discord|discordptb|[Vv]esktop|[Ee]quibop)$" }, render_unfocused = true })
 
       -- -----------------------------------------------------------------------
       -- Raccourcis (la liste lisible est tout en haut de desktop-home.nix)
@@ -962,15 +970,18 @@ in
 
       hl.bind("ALT + Tab", function() AltTab.avancer(1) end)
       hl.bind("ALT + SHIFT + Tab", function() AltTab.avancer(-1) end)
-      -- Relâcher Alt = aller à la fenêtre choisie. "non_consuming" : la touche Alt continue
-      -- d'arriver normalement aux applications (sans cela, Alt ne marcherait plus nulle part).
-      hl.bind("ALT + Alt_L", function() AltTab.finir(true) end, { release = true, non_consuming = true })
+      -- Relâcher Alt = aller à la fenêtre choisie.
+      --   non_consuming : la touche Alt continue d'arriver aux applications (sinon Alt ne
+      --                   marcherait plus nulle part) ;
+      --   transparent   : indispensable. Pendant qu'on tient Alt, l'appui sur Tab "masque" les
+      --                   raccourcis de la touche Alt (règle de Hyprland, pour que relâcher Super
+      --                   après Super+Q ne lance rien) : sans cette option, relâcher Alt ne
+      --                   ferait rien et il fallait cliquer sur la miniature.
+      -- (Ce raccourci est global, pas dans le mode "alttab" : Hyprland ne retient un relâchement
+      --  que dans le mode où la touche a été enfoncée, et Alt l'est toujours avant d'y entrer.)
+      hl.bind("ALT + Alt_L", function() AltTab.finir(true) end, { release = true, non_consuming = true, transparent = true })
       -- Pendant le choix seulement :
       hl.define_submap("alttab", function()
-        -- Relâcher Alt = aller à la fenêtre sélectionnée. Doit être répété ici : pendant le
-        -- choix, Hyprland n'écoute QUE les raccourcis de ce mode.
-        hl.bind("ALT + Alt_L", function() AltTab.finir(true) end, { release = true, non_consuming = true })
-        hl.bind("Alt_L", function() AltTab.finir(true) end, { release = true, non_consuming = true })
         hl.bind("ALT + Tab", function() AltTab.avancer(1) end)
         hl.bind("ALT + SHIFT + Tab", function() AltTab.avancer(-1) end)
         hl.bind("ALT + right", function() AltTab.avancer(1) end)
@@ -1025,6 +1036,21 @@ in
       me-select-entry = "";
       me-accept-entry = "MousePrimary";
     };
+  };
+
+  # --- Partage d'écran (Discord, navigateurs...) --------------------------------
+  # Le portail de Hyprland ouvre notre sélecteur, dans le style des panneaux, au lieu du sien.
+  # "Se souvenir de ce choix" est coché d'office : une application qui sait s'en servir ne
+  # redemande pas à chaque partage.
+  xdg.configFile."hypr/xdph.conf" = {
+    text = ''
+      screencopy {
+          custom_picker_binary = ${selecteurPartage}
+          allow_token_by_default = true
+      }
+    '';
+    # Le portail ne relit sa configuration qu'au démarrage
+    onChange = "${pkgs.systemd}/bin/systemctl --user try-restart xdg-desktop-portal-hyprland.service || true";
   };
 
   # --- Notifications -----------------------------------------------------------
