@@ -22,7 +22,7 @@ use serde_json::Value;
 use crate::App;
 use crate::outils::{
     boite, bouton, bouton_icone, couper, dossier_session, en_fond, etiquette, etiquette_centree,
-    executer_delai, hyprland, icone, icone_appli, image_ajustee, marges,
+    hyprland, icone, icone_appli, image_ajustee, marges, miniature_grim,
 };
 
 const LARGEUR: i32 = 240; // taille d'une miniature, en points
@@ -224,11 +224,8 @@ fn miniature(cadre: &gtk::CenterBox, cible: &[&str], nom: &str) {
     let cadre = cadre.clone();
     en_fond(
         move || {
-            let destination = c.to_string_lossy().into_owned();
-            let mut commande = vec!["grim"];
-            commande.extend(cible.iter().map(String::as_str));
-            commande.extend(["-s", "0.3", "-t", "jpeg", "-q", "80", &destination]);
-            executer_delai(&commande, 4).0 && Path::new(&destination).exists()
+            let cible: Vec<&str> = cible.iter().map(String::as_str).collect();
+            miniature_grim(&cible, &c.to_string_lossy())
         },
         move |reussi| {
             if reussi && let Some((image, _, _)) = image_ajustee(&chemin, LARGEUR, HAUTEUR, true) {

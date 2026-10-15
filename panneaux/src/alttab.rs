@@ -17,7 +17,7 @@ use serde_json::Value;
 
 use crate::App;
 use crate::outils::{
-    boite, couper, dossier_session, en_fond, etiquette, etiquette_centree, executer, executer_delai,
+    boite, couper, dossier_session, en_fond, etiquette, etiquette_centree, executer, executer_delai, miniature_grim,
     hyprland, icone, icone_appli, image_ajustee, marges,
 };
 
@@ -149,13 +149,7 @@ impl AltTab {
         let a = Rc::clone(self);
         en_fond(
             move || {
-                let destination = c.to_string_lossy();
-                let ok = executer_delai(
-                    &["grim", "-T", &ident, "-s", "0.3", "-t", "jpeg", "-q", "80", &destination],
-                    4,
-                )
-                .0;
-                ok && c.exists()
+                miniature_grim(&["-T", &ident], &c.to_string_lossy())
             },
             move |reussi| {
                 if reussi {

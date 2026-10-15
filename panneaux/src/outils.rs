@@ -177,6 +177,17 @@ pub fn executer_delai(commande: &[&str], delai: u64) -> (bool, String) {
     }
 }
 
+/// Miniature d'un écran ou d'une fenêtre (cible : "-o ÉCRAN" ou "-T FENÊTRE") en JPEG réduit.
+/// Certaines fenêtres (Steam, jeux XWayland en plein écran) ne livrent jamais d'image : grim
+/// attendrait alors sans fin. "timeout -s KILL" l'arrête au bout de 2 s, même si le panneau
+/// qui l'a lancé est déjà fermé (sinon ces captures restaient bloquées et s'accumulaient).
+pub fn miniature_grim(cible: &[&str], destination: &str) -> bool {
+    let mut commande = vec!["timeout", "-s", "KILL", "2", "grim"];
+    commande.extend_from_slice(cible);
+    commande.extend(["-s", "0.3", "-t", "jpeg", "-q", "80", destination]);
+    executer_delai(&commande, 3).0 && Path::new(destination).exists()
+}
+
 /// Exécute travail() sans figer l'affichage, puis puis(résultat) dans l'affichage.
 /// Pour les actions lentes : connexion Wi-Fi, recherche Bluetooth, miniatures...
 pub fn en_fond<T: Send + 'static>(

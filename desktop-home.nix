@@ -163,7 +163,7 @@ let
         --set-default GSK_RENDERER cairo
         --prefix PATH : ${lib.makeBinPath [
           pkgs.systemd pkgs.pulseaudio pkgs.libnotify pkgs.procps pkgs.pavucontrol pkgs.wl-clipboard
-          pkgs.grim # miniatures de l'Alt+Tab
+          pkgs.grim pkgs.coreutils # miniatures (Alt+Tab, partage) ; timeout : arrêter une capture bloquée
           pkgs.networkmanager pkgs.util-linux pkgs.bluez pkgs.networkmanagerapplet # réseau
           pkgs.mako # makoctl (notifications)
           pkgs.wireplumber pkgs.slurp config.programs.rofi.finalPackage # volume, capture, lanceur
