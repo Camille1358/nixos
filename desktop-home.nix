@@ -49,13 +49,25 @@ let
   # false = barre pleine, sombre
   barreTransparente = true;
 
-  # Veille automatique quand tu ne touches à rien (en minutes).
-  # L'écran s'éteint toujours. La mise en veille de l'ordinateur, elle, peut être
-  # coupée depuis le menu session de la barre (bouton rouge) pour le laisser tourner.
+  # Cloche des notifications de la barre : simple cloche, ou cloche qui sonne s'il y a
+  # des notifications non lues. Survol = les dernières, groupées par application.
+  notifsSurvol = 10; # nombre de notifications affichées au survol
+  clocheAnimee = false; # true = en plus, la cloche s'agite tant qu'il y a du non lu
+
+  # Petit son à l'arrivée d'une notification (thème de sons "Ocean" de KDE Plasma).
+  # "" = jamais de son. Autres choix : "message-highlight", "dialog-information", "bell"...
+  sonNotification = "message-new-instant";
+  # Applications qui jouent déjà leur propre son : pas de second son par-dessus.
+  # (nom de l'application tel qu'elle l'envoie ; il apparaît en gras dans l'historique)
+  sansSonPour = [ "discord" ];
+
   # Vitesse de défilement de la molette, dans toutes les applications : 1.0 = normale,
   # 2.0 = deux fois plus de lignes par cran. (Firefox ajoute sa propre vitesse par-dessus.)
   defilement = 2.0;
 
+  # Veille automatique quand tu ne touches à rien (en minutes).
+  # L'écran s'éteint toujours. La mise en veille de l'ordinateur, elle, peut être
+  # coupée depuis le menu session de la barre (bouton rouge) pour le laisser tourner.
   ecranEnVeilleApres = 10;
   ordiEnVeilleApres = 30;
 
@@ -258,31 +270,47 @@ let
     export ICONE_CPU="${ic "f2db"}" ICONE_GPU="${ic "f02ae"}" ICONE_RAM="${ic "f035b"}" ICONE_TEMP="${ic "f2c9"}"
   '' + builtins.readFile ./capteurs.sh);
 
-  # Témoin de la barre : nombre de fenêtres réduites (invisible s'il n'y en a aucune).
-  # Cloche des notifications : nombre de notifications arrivées depuis la dernière
-  # ouverture du panneau (journal tenu par le service "journal-notifications", startup.nix)
+  # Cloche des notifications (journal tenu par le service "journal-notifications", startup.nix).
+  #   icône  : simple cloche ; cloche qui sonne s'il y a des notifications arrivées depuis la
+  #            dernière ouverture du panneau ; cloche barrée en "Ne pas déranger"
+  #   survol : seulement les dernières notifications, groupées par application, avec l'heure
+  #            (les non lues marquées d'un point). Les réglages sont dans le panneau (clic).
   notifsBarre = script "notifs-barre" ''
     dossier="''${XDG_STATE_HOME:-$HOME/.local/state}/notifications"
+    journal="$dossier/journal.jsonl"
     vu=$(cat "$dossier/vu" 2>/dev/null || echo 0)
     nouvelles=0
-    if [ -s "$dossier/journal.jsonl" ]; then
-      nouvelles=$(jq -s --argjson vu "$vu" '[.[] | select(.t > $vu)] | length' \
-        "$dossier/journal.jsonl" 2>/dev/null || echo 0)
-    fi
+    [ -s "$journal" ] && nouvelles=$(jq -s --argjson vu "$vu" '[.[] | select(.t > $vu)] | length' "$journal" 2>/dev/null || echo 0)
+
+    # Les ${toString notifsSurvol} plus récentes ; applications de la plus récente à la plus
+    # ancienne. Heure seule pour aujourd'hui, date + heure avant. (@html : texte sûr pour l'infobulle)
+    liste=""
+    [ -s "$journal" ] && liste=$(jq -rs --argjson vu "$vu" '
+      (now | strflocaltime("%d/%m")) as $jour
+      | def heure: (.t | strflocaltime("%d/%m")) as $j
+          | if $j == $jour then (.t | strflocaltime("%H:%M")) else $j + " " + (.t | strflocaltime("%H:%M")) end;
+        def ligne: ((.texte // "") | gsub("\\s+"; " ") | if length > 70 then .[:69] + "…" else . end) as $txt
+          | (if .t > $vu then "<span color=\"#${c.cyan}\">●</span>" else " " end)
+            + " <span color=\"#${c.muted}\">" + heure + "</span>  " + ((.titre // "") | @html)
+            + (if $txt != "" then "\n         <span color=\"#${c.muted}\">" + ($txt | @html) + "</span>" else "" end);
+      sort_by(-.t) | .[:${toString notifsSurvol}]
+      | group_by(.app) | sort_by(-(map(.t) | max))
+      | map("<b>" + (.[0].app | @html) + "</b>\n" + (sort_by(-.t) | map(ligne) | join("\n")))
+      | join("\n\n")
+    ' "$journal" 2>/dev/null)
+
     if ${pkgs.mako}/bin/makoctl mode 2>/dev/null | grep -qx do-not-disturb; then
-      icone="${ic "f1f6"}"; classe=dnd; bulle="Ne pas déranger : activé"
+      icone="${ic "f009b"}"; classes='["dnd"]'
+    elif [ "$nouvelles" -gt 0 ]; then
+      icone="${ic "f009e"}"; classes='["nonlues"${lib.optionalString clocheAnimee '', "animee"''}]'
     else
-      icone="${ic "f0f3"}"; classe=""; bulle="Aucune nouvelle notification"
+      icone="${ic "f009a"}"; classes='[]'
     fi
-    texte="$icone"
-    if [ "$nouvelles" -gt 0 ]; then
-      texte="$icone  $nouvelles"
-      [ "$classe" = dnd ] || classe=nonlues
-      bulle="$nouvelles nouvelle(s) notification(s)"
-    fi
-    jq -cn --arg t "$texte" --arg b "$bulle" --arg c "$classe" '{text: $t, tooltip: $b, class: $c}'
+    vide="Aucune notification"
+    jq -cn --arg t "$icone" --arg b "''${liste:-$vide}" --argjson c "$classes" '{text: $t, tooltip: $b, class: $c}'
   '';
 
+  # Témoin de la barre : nombre de fenêtres réduites (invisible s'il n'y en a aucune).
   reduitesBarre = script "reduites-barre" ''
     filtre='[.[] | select(.workspace.name == "special:reduites")]'
     fenetres=$(hyprctl -j clients | ${pkgs.jq}/bin/jq -c "$filtre")
@@ -680,18 +708,40 @@ in
           color: @red;
       }
 
+      /* Les cloches débordent à droite de leur case dans la police : marge droite plus grande
+         pour les recentrer (mesuré : +2 px la cloche simple, +4 px celles qui sonnent ou barrées) */
       #custom-notifications {
           color: @text;
           margin-left: 8px;
-          padding: 0 13px 0 12px;
-      }
-
-      #custom-notifications.nonlues {
-          color: @cyan;
+          padding: 0 14px 0 12px;
       }
 
       #custom-notifications.dnd {
           color: @muted;
+          padding: 0 16px 0 12px;
+      }
+
+      /* Notifications non lues : la cloche qui sonne, en cyan */
+      #custom-notifications.nonlues {
+          color: @cyan;
+          padding: 0 16px 0 12px;
+      }
+
+      /* Option "clocheAnimee" : elle s'agite de gauche à droite avec un halo, se repose un
+         instant, et recommence jusqu'à l'ouverture du panneau */
+      #custom-notifications.animee {
+          animation: sonner 2.4s ease-in-out infinite;
+      }
+
+      @keyframes sonner {
+          0%   { padding: 0 16px 0 12px; text-shadow: 0 0 0 transparent; }
+          6%   { padding: 0 19px 0 9px;  text-shadow: 0 0 8px @cyan; }
+          12%  { padding: 0 13px 0 15px; text-shadow: 0 0 8px @cyan; }
+          18%  { padding: 0 18px 0 10px; text-shadow: 0 0 8px @cyan; }
+          24%  { padding: 0 14px 0 14px; text-shadow: 0 0 6px @cyan; }
+          30%  { padding: 0 17px 0 11px; text-shadow: 0 0 4px @cyan; }
+          36%  { padding: 0 16px 0 12px; text-shadow: 0 0 0 transparent; }
+          100% { padding: 0 16px 0 12px; text-shadow: 0 0 0 transparent; }
       }
 
       #custom-etat {
@@ -1032,6 +1082,10 @@ in
       hl.bind("ALT + Alt_L", function() AltTab.finir(true) end, { release = true, non_consuming = true })
       -- Pendant le choix seulement :
       hl.define_submap("alttab", function()
+        -- Relâcher Alt = aller à la fenêtre sélectionnée. Doit être répété ici : pendant le
+        -- choix, Hyprland n'écoute QUE les raccourcis de ce mode.
+        hl.bind("ALT + Alt_L", function() AltTab.finir(true) end, { release = true, non_consuming = true })
+        hl.bind("Alt_L", function() AltTab.finir(true) end, { release = true, non_consuming = true })
         hl.bind("ALT + Tab", function() AltTab.avancer(1) end)
         hl.bind("ALT + SHIFT + Tab", function() AltTab.avancer(-1) end)
         hl.bind("ALT + right", function() AltTab.avancer(1) end)
@@ -1092,10 +1146,15 @@ in
       progress-color = "over #${c.magenta}55"; # jauge du volume
       default-timeout = 5000; # en millisecondes
 
+      # Petit son à chaque notification (réglage "sonNotification" en haut du fichier)
+      on-notify = lib.mkIf (sonNotification != "")
+        "exec ${pkgs.pipewire}/bin/pw-play ${pkgs.kdePackages.ocean-sound-theme}/share/sounds/ocean/stereo/${sonNotification}.oga";
+
       # Mode "Ne pas déranger" (bouton du panneau des notifications) : rien ne s'affiche,
-      # mais tout reste dans l'historique de la cloche.
+      # aucun son, mais tout reste dans l'historique de la cloche.
       "mode=do-not-disturb" = {
         invisible = 1;
+        on-notify = "none";
       };
 
       # Les notifications urgentes restent affichées jusqu'à ce qu'on clique dessus
@@ -1103,7 +1162,11 @@ in
         border-color = "#${c.red}";
         default-timeout = 0;
       };
-    };
+    }
+    # Pas de son pour les applications qui ont le leur ("sansSonPour"), ni pour les
+    # pastilles passagères du bureau (jauge du volume, dictée)
+    // lib.genAttrs (map (appli: "app-name=${appli}") (sansSonPour ++ [ "volume" "dictee" ]))
+      (_: { on-notify = "none"; });
   };
 
   # --- Veille automatique ------------------------------------------------------
