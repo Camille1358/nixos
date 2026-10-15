@@ -115,6 +115,12 @@ rec {
   # Sur PyPI le paquet s'appelle "graphifyy" (deux y) : c'est bien celui de Graphify-Labs.
   graphify = uvx { name = "graphify"; package = "graphifyy"; version = p.versions.graphify; };
 
-  # 5.2 Serveur MCP pour Qdrant
-  mcp-qdrant = uvx { name = "mcp-server-qdrant"; package = "mcp-server-qdrant"; version = p.versions.mcpQdrant; };
+  # 5.2 Serveur MCP pour Qdrant. Son modèle d'embeddings est rangé dans le dossier central
+  # (sinon : /tmp, et un nouveau téléchargement après chaque nettoyage).
+  mcp-qdrant = uvx {
+    name = "mcp-server-qdrant";
+    package = "mcp-server-qdrant";
+    version = p.versions.mcpQdrant;
+    env.FASTEMBED_CACHE_PATH = "${p.dossier}/outils/fastembed";
+  };
 }

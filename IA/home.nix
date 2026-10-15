@@ -33,16 +33,40 @@ let
       description = "Mémoire persistante des agents (Engram)";
     };
   } // lib.optionalAttrs ia.actif.qdrant {
-    # 2.1 Base vectorielle partagée [?] (télécharge un petit modèle d'embeddings au 1er usage)
+    # 2.1 Base vectorielle partagée (télécharge son modèle, 0,22 Go, au 1er usage)
     qdrant = {
       command = "${paquets.mcp-qdrant}/bin/mcp-server-qdrant";
       args = [ ];
       env = {
         QDRANT_URL = ia.url.qdrant;
-        COLLECTION_NAME = "memoire-agents";
+        COLLECTION_NAME = ia.memoire.collection;
+        EMBEDDING_MODEL = ia.memoire.modele;
+        # Ce que les agents lisent pour savoir quand se servir de ces deux outils
+        TOOL_FIND_DESCRIPTION = "Cherche par le sens dans la mémoire partagée de tous les agents : souvenirs rangés par les agents, et archive des conversations avec Claude Code sur cette machine (décisions, problèmes résolus, préférences de l'utilisateur). À utiliser au début d'une tâche, ou dès qu'un sujet a pu être déjà traité.";
+        TOOL_STORE_DESCRIPTION = "Range un souvenir dans la mémoire partagée de tous les agents (y compris Claude Code) : décision, découverte, résultat de recherche. 'information' : le texte complet, compréhensible seul ; 'metadata' : sujet, date, source.";
       };
-      description = "Recherche sémantique dans Qdrant";
+      description = "Mémoire partagée, recherche par le sens (Qdrant)";
     };
+  };
+
+  # Archive des conversations avec Claude Code dans Qdrant (lancé toutes les 30 minutes par
+  # startup.nix, ou à la main : memoire-conversations ; --tout pour tout reprendre).
+  # Programme en Rust (dossier IA/memoire/) ; ses tests tournent à chaque construction.
+  memoireConversations = pkgs.rustPlatform.buildRustPackage {
+    pname = "memoire-conversations";
+    version = "1.0.0";
+    src = lib.fileset.toSource {
+      root = ./memoire;
+      fileset = lib.fileset.unions [ ./memoire/Cargo.toml ./memoire/Cargo.lock ./memoire/src ];
+    };
+    cargoLock.lockFile = ./memoire/Cargo.lock;
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postFixup = ''
+      wrapProgram $out/bin/memoire-conversations \
+        ${lib.concatStrings (lib.mapAttrsToList (k: v: "--set ${k} ${lib.escapeShellArg v} ") mcp.qdrant.env)} \
+        --set MEMOIRE_SERVEUR ${mcp.qdrant.command} \
+        --set MEMOIRE_ETAT ${ia.dossier}/agents/memoire-conversations/etat.json
+    '';
   };
 
   # ---------------------------------------------------------------------------
@@ -88,6 +112,8 @@ let
     Cite toujours les adresses de tes sources.
     MÉMOIRE : les outils mem_* (Engram) gardent tes découvertes et décisions d'une session à
     l'autre. Enregistre ce qui servira plus tard ; consulte-les au début d'une tâche.
+    qdrant-find cherche par le sens dans la mémoire partagée, qui contient aussi l'archive de
+    toutes les conversations avec Claude (le Claude du cloud) sur cette machine.
     Pour une longue recherche, écris tes résultats au fur et à mesure dans un fichier du
     dossier courant, pour ne rien perdre.
   '';
@@ -126,6 +152,7 @@ let
     # Mémoire : serveurs MCP partagés avec les autres agents (Engram, NixOS, Qdrant).
     exec ${pkgs.claude-code}/bin/claude \
       --mcp-config ${claudeMcp} \
+      --allowedTools ${lib.concatMapStringsSep "," (nom: "mcp__${nom}") (builtins.attrNames mcp)} \
       --disallowedTools WebSearch \
       --append-system-prompt ${lib.escapeShellArg consignesLocales} \
       "$@"
@@ -206,7 +233,33 @@ in
     pkgs.mcp-nixos # 5.2
     pkgs.uv # lance les outils Python des skills (last30days...)
     pkgs.nodejs_24 # lance les outils npm
-  ] ++ lib.optional ia.actif.jcode paquets.jcode; # 4.2 second agent -> jcode
+  ] ++ lib.optional ia.actif.jcode paquets.jcode # 4.2 second agent -> jcode
+    ++ lib.optional (ia.actif.qdrant && ia.memoire.conversations) memoireConversations; # -> memoire-conversations
+
+  # ---------------------------------------------------------------------------
+  # Claude Code (le Claude du cloud, dans VS Code) : les mêmes serveurs MCP que les agents
+  # locaux, donc la même mémoire (Engram, Qdrant) et la même aide NixOS.
+  # ---------------------------------------------------------------------------
+  # Claude Code garde sa configuration dans ~/.claude.json, un fichier qu'il modifie lui-même
+  # en permanence : on n'y écrit pas directement, on lui demande d'enregistrer chaque serveur
+  # ("claude mcp add-json", portée "user" : valable dans tous les projets). Refait à chaque
+  # activation, seulement si la définition a changé (nouveau chemin après une mise à jour...).
+  home.activation.claudeCodeMcp = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    export DISABLE_AUTOUPDATER=1 DISABLE_TELEMETRY=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    claudeMcp() { # $1 nom, $2 définition JSON
+      actuel=$(${pkgs.jq}/bin/jq -cS --arg n "$1" \
+        '.mcpServers[$n] // empty | {command, args: (.args // []), env: (.env // {})}' \
+        "$HOME/.claude.json" 2>/dev/null)
+      voulu=$(echo "$2" | ${pkgs.jq}/bin/jq -cS '{command, args, env}')
+      [ "$actuel" = "$voulu" ] && return 0
+      run ${pkgs.claude-code}/bin/claude mcp remove --scope user "$1" >/dev/null 2>&1 || true
+      run ${pkgs.claude-code}/bin/claude mcp add-json --scope user "$1" "$2" >/dev/null \
+        || echo "Claude Code : impossible d'enregistrer le serveur MCP $1" >&2
+    }
+    ${lib.concatStrings (lib.mapAttrsToList (nom: s: ''
+      claudeMcp ${nom} ${lib.escapeShellArg (builtins.toJSON { type = "stdio"; inherit (s) command args env; })}
+    '') mcp)}
+  '';
 
   # ---------------------------------------------------------------------------
   # Données des agents : rangées dans le dossier central (parametres.nix : dossier)

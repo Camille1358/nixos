@@ -9,3 +9,5 @@ wg-NO-FREE-1.conf
 wg-JP-FREE-5.conf
 private-NL.key
 wireguard/key/wg-CH-FREE-1.conf
+# Fichiers de compilation des panneaux (cargo build), recréés à la demande
+panneaux/target/

@@ -10,10 +10,11 @@
 
 let
   local = import ./local.nix;
+  ia = import ./IA/parametres.nix;
 in
 {
   # Journal des notifications : note chaque notification reçue (application, titre, texte,
-  # date et heure) pour l'historique de la cloche de la barre (panneaux.py). N'affiche rien
+  # date et heure) pour l'historique de la cloche de la barre (panneaux/). N'affiche rien
   # lui-même : il écoute seulement ce que les applications envoient.
   # Les notifications passagères (jauge du volume, pastille de dictée) ne sont pas gardées.
   systemd.user.services.journal-notifications = {
@@ -140,6 +141,27 @@ in
     serviceConfig = {
       ExecStart = "${pkgs.opensnitch-ui}/bin/opensnitch-ui";
       Restart = "on-failure";
+    };
+  };
+
+  # Mémoire de l'IA locale : les nouveaux messages des conversations avec Claude Code sont
+  # ajoutés à la mémoire partagée (Qdrant), toutes les 30 minutes. Ne relit que le nouveau ;
+  # ne fait rien (et ne lance rien) s'il n'y a rien de nouveau. Réglages : IA/parametres.nix,
+  # bloc "memoire" ; outil : memoire-conversations (IA/home.nix).
+  systemd.user.services.memoire-conversations = lib.mkIf (ia.actif.qdrant && ia.memoire.conversations) {
+    description = "Conversations avec Claude Code vers la mémoire de l'IA locale (Qdrant)";
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "/etc/profiles/per-user/${local.sysName}/bin/memoire-conversations";
+      Nice = 15;
+      IOSchedulingClass = "idle";
+    };
+  };
+  systemd.user.timers.memoire-conversations = lib.mkIf (ia.actif.qdrant && ia.memoire.conversations) {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "15min";
+      OnUnitActiveSec = ia.memoire.conversationsToutesLes;
     };
   };
 

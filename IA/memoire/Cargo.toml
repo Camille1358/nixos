@@ -1,0 +1,16 @@
+# memoire-conversations : archive des conversations avec Claude Code dans la mémoire partagée
+# de l'IA locale (Qdrant). Construit par Nix : voir IA/home.nix.
+[package]
+name = "memoire-conversations"
+version = "1.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
