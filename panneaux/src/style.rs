@@ -3,6 +3,7 @@
 //! desktop-home.nix écrit un petit fichier JSON (désigné par la variable PANNEAUX_THEME) :
 //! rien n'est à régler ici.
 
+use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 use serde_json::Value;
@@ -20,6 +21,8 @@ pub struct Theme {
     pub defilement_auto_sauf: Vec<String>,
     /// Défilement automatique : pages par seconde pour 10 points d'éloignement de la souris
     pub defilement_vitesse: f64,
+    /// Alerte si le point le plus chaud de la carte graphique atteint ce seuil (°C) ; None = jamais
+    pub alerte_chaleur: Option<i64>,
 }
 
 impl Theme {
@@ -47,6 +50,7 @@ pub static THEME: LazyLock<Theme> = LazyLock::new(|| {
         notifs_survol: json["notifsSurvol"].as_u64().unwrap_or(10) as usize,
         cloche_animee: json["clocheAnimee"].as_bool().unwrap_or(false),
         defilement_vitesse: json["defilementVitesse"].as_f64().unwrap_or(1.0),
+        alerte_chaleur: json["alerteChaleur"].as_i64(),
         defilement_auto_sauf: json["defilementAutoSauf"]
             .as_array()
             .map(|l| l.iter().filter_map(|c| c.as_str().map(str::to_owned)).collect())
@@ -56,16 +60,16 @@ pub static THEME: LazyLock<Theme> = LazyLock::new(|| {
 
 /// La feuille de style : chaque couleur du thème devient "@nom" (ex. @cyan).
 pub fn feuille() -> String {
-    let mut css = String::new();
+    let mut css = String::with_capacity(CSS.len() + 1024);
     for (nom, code) in &THEME.couleurs {
-        css.push_str(&format!("@define-color {nom} #{code};\n"));
+        let _ = writeln!(css, "@define-color {nom} #{code};");
     }
-    css.push_str(&format!("* {{ font-family: \"{}\"; font-size: 14px; }}\n", THEME.police));
+    let _ = writeln!(css, "* {{ font-family: \"{}\"; font-size: 14px; }}", THEME.police);
     css.push_str(CSS);
     css
 }
 
-const CSS: &str = r#"
+const CSS: &str = r"
 window { background: transparent; }
 .attrape-clic { background: rgba(0, 0, 0, 0.004); }
 #panneau {
@@ -132,4 +136,4 @@ button.petit:hover { color: @red; }
 .carte { background: alpha(@surface, 0.9); border: 2px solid transparent; border-radius: 12px; }
 .carte.choisie { border-color: @cyan; background: alpha(@cyan, 0.14); }
 .miniature { background: @bg; border-radius: 8px; }
-"#;
+";

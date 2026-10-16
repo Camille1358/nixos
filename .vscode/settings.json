@@ -1,0 +1,8 @@
+{
+  // rust-analyzer : les deux programmes en Rust de ce dépôt (outils : modules/dev.nix)
+  "rust-analyzer.linkedProjects": ["panneaux/Cargo.toml", "IA/memoire/Cargo.toml"],
+  // Sources de la bibliothèque standard de Rust, fournies par Nix
+  "rust-analyzer.cargo.sysrootSrc": "${userHome}/.local/share/rust-src",
+  // Vérification complète à chaque enregistrement : clippy, le correcteur officiel de Rust
+  "rust-analyzer.check.command": "clippy"
+}

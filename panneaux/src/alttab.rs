@@ -16,10 +16,7 @@ use gtk::prelude::*;
 use serde_json::Value;
 
 use crate::App;
-use crate::outils::{
-    boite, couper, dossier_session, en_fond, etiquette, etiquette_centree, executer, executer_delai, miniature_grim,
-    hyprland, icone, icone_appli, image_ajustee, marges,
-};
+use crate::outils::{boite, carte_fenetre, dossier_session, executer, hyprland, poser_miniature};
 
 const LARGEUR: i32 = 260; // taille d'une miniature
 const HAUTEUR: i32 = 165;
@@ -80,10 +77,11 @@ pub fn creer(app: &App) -> gtk::Box {
         choix: RefCell::new(None),
         minuteur: RefCell::new(None),
     });
-    let dossier = dossier_session().join("alttab-miniatures");
-    let _ = std::fs::create_dir_all(&dossier);
+    // Miniatures : chaque fenêtre est capturée, même cachée ou sur un autre bureau
     for (f, cadre) in fenetres.iter().zip(cadres) {
-        alttab.miniature(f, cadre, &dossier);
+        let fenetre = f["stableId"].to_string().trim_matches('"').to_owned();
+        let a = Rc::clone(&alttab);
+        poser_miniature(&cadre, &["-T", &fenetre], (LARGEUR, HAUTEUR), move || a.app.affiche(a.numero));
     }
 
     if alttab.suivre() {
@@ -102,33 +100,12 @@ pub fn creer(app: &App) -> gtk::Box {
     racine
 }
 
-/// Une carte : la miniature (l'icône de l'application en attendant), puis le titre.
+/// Une carte : la miniature (l'icône de l'application en attendant), puis le titre ;
+/// un clic choisit cette fenêtre.
 fn carte(app: &App, f: &Value) -> (gtk::Box, gtk::CenterBox) {
-    let classe = f["class"].as_str().unwrap_or_default();
-    let zone = boite(true, 8);
-    marges(&zone, 10);
-    let cadre = gtk::CenterBox::new();
-    cadre.set_size_request(LARGEUR, HAUTEUR);
-    cadre.add_css_class("miniature");
-    match icone_appli(classe, 64) {
-        Some(image) => cadre.set_center_widget(Some(&image)),
-        None => cadre.set_center_widget(Some(&etiquette_centree(icone::FENETRE, &["grosse-icone"]))),
-    }
-    zone.append(&cadre);
-
-    let titre = boite(false, 6);
-    if let Some(petite) = icone_appli(classe, 18) {
-        titre.append(&petite);
-    }
     let texte =
         [&f["title"], &f["class"]].iter().find_map(|v| v.as_str().filter(|t| !t.is_empty())).unwrap_or("?");
-    let e = etiquette(texte, &[]);
-    couper(&e, 26);
-    e.set_hexpand(true);
-    titre.append(&e);
-    zone.append(&titre);
-
-    zone.add_css_class("carte");
+    let (zone, cadre) = carte_fenetre(texte, f["class"].as_str().unwrap_or_default(), (LARGEUR, HAUTEUR), 64);
     let clic = gtk::GestureClick::new();
     clic.set_button(0);
     let (app, adresse) = (Rc::clone(app), f["address"].as_str().unwrap_or_default().to_owned());
@@ -141,28 +118,6 @@ fn carte(app: &App, f: &Value) -> (gtk::Box, gtk::CenterBox) {
 }
 
 impl AltTab {
-    /// Capture la fenêtre (même cachée ou sur un autre bureau), sans figer l'affichage.
-    fn miniature(self: &Rc<Self>, f: &Value, cadre: gtk::CenterBox, dossier: &std::path::Path) {
-        let ident = f["stableId"].to_string().trim_matches('"').to_owned();
-        let chemin = dossier.join(format!("{ident}.jpg"));
-        let c = chemin.clone();
-        let a = Rc::clone(self);
-        en_fond(
-            move || {
-                miniature_grim(&["-T", &ident], &c.to_string_lossy())
-            },
-            move |reussi| {
-                if reussi {
-                    let image = image_ajustee(&chemin, LARGEUR, HAUTEUR, true);
-                    if let (Some((image, _, _)), true) = (image, a.app.affiche(a.numero)) {
-                        cadre.set_center_widget(Some(&image));
-                    }
-                }
-                let _ = std::fs::remove_file(&chemin);
-            },
-        );
-    }
-
     /// Suit le choix fait dans Hyprland. Renvoie false quand le choix est terminé.
     fn suivre(&self) -> bool {
         let Some(choix) = choix_en_cours() else {

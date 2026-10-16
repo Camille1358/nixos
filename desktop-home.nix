@@ -78,11 +78,30 @@ let
   # minuscules : voir hyprctl clients). Vide : le même défilement partout.
   defilementAutoSauf = [ ];
 
+  # Raccourcis Discord utilisables depuis N'IMPORTE QUELLE application, comme sous Windows : un
+  # appui active, un autre désactive. La touche agit sur le Discord utilisé en dernier et reste
+  # aussi reçue par l'application active. Format : "F7", "CTRL + SHIFT + M"... ; null = aucun.
+  #   micro, casque : Equibop / Vesktop reçoivent une commande directe (marche toujours, rien à
+  #                   régler dans Discord). Discord officiel : la touche lui est transmise, il
+  #                   doit avoir la même dans Paramètres → Raccourcis clavier.
+  #   stream        : la touche est transmise à Discord (Equibop compris) : y régler la même
+  #                   touche pour « Activer/désactiver le stream Go Live ».
+  raccourcisDiscord = {
+    micro = "Insert"; # couper / rétablir ton micro
+    casque = "End"; # sourdine (touche Fin) : micro + son coupés
+    stream = "F6"; # lancer / arrêter un stream (Go Live)
+  };
+
   # Veille automatique quand tu ne touches à rien (en minutes).
   # L'écran s'éteint toujours. La mise en veille de l'ordinateur, elle, peut être
   # coupée depuis le menu session de la barre (bouton rouge) pour le laisser tourner.
   ecranEnVeilleApres = 10;
   ordiEnVeilleApres = 30;
+
+  # Alerte de surchauffe : notification (et température en rouge dans la barre) quand le point
+  # le plus chaud de la carte graphique atteint ce seuil, en °C. Elle s'éteint d'urgence à 115.
+  # null = jamais d'alerte.
+  alerteChaleur = 100;
 
   # Palette néon / cyberpunk (fond noir obligatoire). Format : RRGGBB, sans "#".
   c = {
@@ -140,7 +159,7 @@ let
   panneauxTheme = pkgs.writeText "panneaux-theme.json" (builtins.toJSON {
     couleurs = c;
     police = font;
-    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee defilementAutoSauf defilementVitesse;
+    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee defilementAutoSauf defilementVitesse alerteChaleur;
   });
   # Programme en Rust (dossier panneaux/), avec GTK 4. Ses tests automatiques tournent à
   # chaque construction : s'ils échouent, nrs s'arrête au lieu d'installer un panneau cassé.
@@ -179,8 +198,9 @@ let
   # portail de Hyprland. Le portail lance un programme sans argument, d'où ce petit lanceur.
   selecteurPartage = pkgs.writeShellScript "selecteur-partage" ''exec ${panneaux}/bin/panneaux partage "$@"'';
 
-  # Modules de la barre et petites commandes du bureau : le même programme Rust, sans fenêtre
-  # (panneaux/src/barre.rs) — instantané, sans aucun script.
+  # Modules de la barre et petites commandes du bureau (panneaux/src/barre.rs) : le programme
+  # "panneaux-barre", le même code sans GTK — il démarre en quelques millisecondes (la barre en
+  # lance un toutes les quelques secondes), sans aucun script.
   #   capteurs cpu|gpu|ram|temp  mesures de la barre (infobulles : applications les plus gourmandes)
   #   notifs                     cloche des notifications (survol : les dernières, par application)
   #   etat                       témoin "veille auto désactivée" (café) / "arrêt programmé" (sablier)
@@ -189,14 +209,16 @@ let
   #   veille-auto                appelé par hypridle (pas de veille si désactivée ou si l'IA travaille)
   #   capture-ecran [ecran]      capture façon KDE : zone (ou écran entier), puis aperçu
   #   lanceur                    Rofi ; relancer le referme, un clic ailleurs aussi (attrape-clic)
-  capteurs = panneau "capteurs";
-  notifsBarre = panneau "notifs";
-  etatBarre = panneau "etat";
-  reduitesBarre = panneau "reduites-barre";
-  volume = panneau "volume";
-  veilleAuto = panneau "veille-auto";
-  capture = panneau "capture-ecran";
-  lanceur = panneau "lanceur";
+  #   defilement                 défilement automatique (clic molette)
+  barre = nom: "${panneaux}/bin/panneaux-barre ${nom}";
+  capteurs = barre "capteurs";
+  notifsBarre = barre "notifs";
+  etatBarre = barre "etat";
+  reduitesBarre = barre "reduites-barre";
+  volume = barre "volume";
+  veilleAuto = barre "veille-auto";
+  capture = barre "capture-ecran";
+  lanceur = barre "lanceur";
 
   # Apparence du lanceur d'applications (Rofi)
   rofiTheme = pkgs.writeText "neon.rasi" ''
@@ -832,6 +854,60 @@ in
       -- n'est pas visible. Sans cela, Discord se met en "veille" et les appels peuvent couper.
       hl.window_rule({ name = "discord-eveille", match = { class = "^(discord|discordptb|[Vv]esktop|[Ee]quibop)$" }, render_unfocused = true })
 
+      -- Jeux Steam (fenêtres "steam_app_…") : sur leur propre bureau "jeux", seuls à l'écran.
+      -- Sur le ruban défilant, un jeu en plein écran s'ajoutait à droite, HORS de l'écran : on
+      -- n'y voyait que le fond d'écran, sans la barre. Et un jeu qui perd la main la redemande
+      -- aussitôt : on ne l'écoute plus (sinon Alt+Tab ramenait sans cesse sur le jeu).
+      hl.workspace_rule({ workspace = "name:jeux", layout = "dwindle" })
+      hl.window_rule({
+        name = "jeux-steam",
+        match = { class = "^steam_app_.*$" },
+        workspace = "name:jeux",
+        suppress_event = "activate activatefocus",
+      })
+
+      -- Raccourcis Discord partout (réglage "raccourcisDiscord" en haut du fichier). Ils agissent
+      -- sur le Discord utilisé en dernier ; la touche reste aussi reçue par l'application active.
+      -- Equibop et Vesktop lisent des commandes dans un tube (XDG_RUNTIME_DIR/vesktop-ipc) : c'est
+      -- leur moyen prévu pour les raccourcis globaux sous Wayland. Le Discord officiel n'en a pas :
+      -- on lui transmet la touche.
+      local clientsDiscord = { discord = "touche", discordptb = "touche", vesktop = "tube", equibop = "tube" }
+      local tubeDiscord = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/vesktop-ipc"
+      local commandesTube = { micro = "VCD_TOGGLE_SELF_MUTE", casque = "VCD_TOGGLE_SELF_DEAF" }
+      local function discordRecent()
+        local choisi
+        for _, w in ipairs(hl.get_windows()) do
+          if w.mapped and clientsDiscord[string.lower(w.class or "")]
+            and (not choisi or w.focus_history_id < choisi.focus_history_id) then
+            choisi = w
+          end
+        end
+        return choisi
+      end
+      for _, r in ipairs({ ${lib.concatStringsSep ", " (lib.mapAttrsToList (action: combo:
+        let morceaux = lib.splitString " + " combo; in
+        ''{ action = "${action}", combo = "${combo}", mods = "${lib.concatStringsSep " " (lib.init morceaux)}", key = "${lib.last morceaux}" }''
+      ) (lib.filterAttrs (_: combo: combo != null) raccourcisDiscord))} }) do
+        hl.bind(r.combo, function()
+          local w = discordRecent()
+          if not w then return end
+          if clientsDiscord[string.lower(w.class)] == "tube" and commandesTube[r.action] then
+            -- "timeout" : si plus personne ne lit le tube, l'écriture attendrait sans fin.
+            -- ("test" et non "[ ... ]" : un "[" au début d'une commande, Hyprland le lit comme
+            -- des règles de fenêtre, et la commande ne se lançait jamais.)
+            hl.exec_cmd("test -p '" .. tubeDiscord .. "' && ${pkgs.coreutils}/bin/timeout 1 /bin/sh -c 'printf "
+              .. commandesTube[r.action] .. " > \"$0\"' '" .. tubeDiscord .. "'")
+          else
+            -- Discord officiel, ou une action sans commande directe (stream) : au premier plan,
+            -- Discord reçoit déjà la touche ; sinon on la lui transmet
+            local active = hl.get_active_window()
+            if not (active and active.address == w.address) then
+              hl.dispatch(hl.dsp.send_shortcut({ mods = r.mods, key = r.key, window = "address:" .. w.address }))
+            end
+          end
+        end, { non_consuming = true })
+      end
+
       -- -----------------------------------------------------------------------
       -- Raccourcis (la liste lisible est tout en haut de desktop-home.nix)
       -- -----------------------------------------------------------------------
@@ -939,6 +1015,57 @@ in
           hl.exec_cmd("pkill -RTMIN+9 waybar")
         end
         hl.dispatch(hl.dsp.focus({ window = cible }))
+        AltTab.garderLaMain(w.address)
+      end
+
+      -- Après un Alt+Tab, la souris ne reprend pas la main tout de suite : sans cela, le
+      -- moindre mouvement redonnait la main à la fenêtre restée sous le curseur (avec le ruban
+      -- qui défile, ce n'est souvent pas celle qu'on vient de choisir). Le comportement normal
+      -- (la fenêtre survolée prend la main) revient dès que le curseur entre dans une AUTRE
+      -- fenêtre que celle sous laquelle il était, ou au premier clic.
+      local function fenetreSousCurseur()
+        local p = hl.get_cursor_pos()
+        if not p then return nil end
+        local trouvee
+        for _, w in ipairs(hl.get_windows()) do
+          if w.mapped and not w.hidden and w.workspace and w.workspace.visible
+            and p.x >= w.at.x and p.x < w.at.x + w.size.x
+            and p.y >= w.at.y and p.y < w.at.y + w.size.y
+            and (not trouvee or (w.floating and not trouvee.floating)) then
+            trouvee = w -- une fenêtre flottante passe devant les autres
+          end
+        end
+        return trouvee and trouvee.address or "aucune"
+      end
+      local apresAltTab = { choisie = nil, depart = nil }
+      local surveillance
+      local function rendreLaSouris()
+        apresAltTab.choisie, apresAltTab.depart = nil, nil
+        if surveillance then surveillance:set_enabled(false) end
+        hl.config({ input = { follow_mouse = 1 } })
+      end
+      local function verifierSouris()
+        if not apresAltTab.choisie then return rendreLaSouris() end
+        local active = hl.get_active_window()
+        if not active or active.address ~= apresAltTab.choisie then return rendreLaSouris() end -- clic ailleurs
+        local sous = fenetreSousCurseur()
+        if not apresAltTab.depart then
+          apresAltTab.depart = sous -- 1re vérification : le ruban a fini de se placer
+          if sous == apresAltTab.choisie then rendreLaSouris() end -- déjà dessus : rien à faire
+        elseif sous ~= apresAltTab.depart then
+          rendreLaSouris() -- le curseur est entré dans une autre fenêtre
+        end
+      end
+      function AltTab.garderLaMain(adresse)
+        apresAltTab.choisie, apresAltTab.depart = adresse, nil
+        hl.config({ input = { follow_mouse = 2 } }) -- le survol ne change plus la fenêtre active
+        -- Minuterie créée au premier Alt+Tab seulement (pas pendant le chargement de la config :
+        -- la vérification de config de Hyprland plante sinon)
+        if surveillance then
+          surveillance:set_enabled(true)
+        else
+          surveillance = hl.timer(verifierSouris, { timeout = 100, type = "repeat" })
+        end
       end
 
       function AltTab.avancer(sens)
@@ -999,7 +1126,7 @@ in
       local function arreterDefilement()
         os.remove(temoinDefilement)
       end
-      hl.bind("mouse:274", hl.dsp.exec_cmd("${panneau "defilement"}"), { non_consuming = true })
+      hl.bind("mouse:274", hl.dsp.exec_cmd("${barre "defilement"}"), { non_consuming = true })
       hl.bind("mouse:272", arreterDefilement, { non_consuming = true })
       hl.bind("mouse:273", arreterDefilement, { non_consuming = true })
       hl.bind("Escape", arreterDefilement, { non_consuming = true })
@@ -1012,6 +1139,15 @@ in
       hl.bind("XF86AudioRaiseVolume", lancer("${volume} up"), { repeating = true, locked = true })
       hl.bind("XF86AudioLowerVolume", lancer("${volume} down"), { repeating = true, locked = true })
       hl.bind("XF86AudioMute", lancer("${volume} mute"), { locked = true })
+
+      -- Touches multimédia (lecture/pause, suivante, précédente) : Spotify en priorité, sinon le
+      -- lecteur ouvert (Firefox, VLC...). Sous Plasma, c'était Plasma qui s'en chargeait.
+      local lecteur = "${pkgs.playerctl}/bin/playerctl --player=spotify,%any "
+      hl.bind("XF86AudioPlay", lancer(lecteur .. "play-pause"), { locked = true })
+      hl.bind("XF86AudioPause", lancer(lecteur .. "play-pause"), { locked = true })
+      hl.bind("XF86AudioNext", lancer(lecteur .. "next"), { locked = true })
+      hl.bind("XF86AudioPrev", lancer(lecteur .. "previous"), { locked = true })
+      hl.bind("XF86AudioStop", lancer(lecteur .. "stop"), { locked = true })
     '';
   };
 
@@ -1162,11 +1298,67 @@ in
     };
   };
 
-  # Dossiers : toujours ouverts avec Dolphin ("ouvrir le dossier" depuis Firefox, Discord...)
+  # Applications par défaut :
+  #   dossiers  → Dolphin ("ouvrir le dossier" depuis Firefox, Discord...)
+  #   liens web et pages → Firefox (navigateur par défaut)
+  #   vidéos    → VLC : tous les types de vidéo connus du système
+  #   images    → qimgv : tous ceux qu'il sait lire (formats de Qt et de KDE : photos, RAW des
+  #               appareils photo, Photoshop, GIMP, SVG...). Les autres (DjVu, AutoCAD, WMF...)
+  #               gardent leur application.
   xdg.mimeApps = {
     enable = true;
-    defaultApplications."inode/directory" = [ "org.kde.dolphin.desktop" ];
+    defaultApplications = {
+      "inode/directory" = [ "org.kde.dolphin.desktop" ];
+    } // lib.genAttrs [
+      "x-scheme-handler/http"
+      "x-scheme-handler/https"
+      "x-scheme-handler/about"
+      "x-scheme-handler/unknown"
+      "text/html"
+      "application/xhtml+xml"
+      "application/x-extension-htm"
+      "application/x-extension-html"
+    ] (_: [ "firefox.desktop" ])
+    // lib.genAttrs (map (t: "video/${t}") [
+      "3gpp" "3gpp2" "annodex" "dv" "isivideo" "mj2" "mp2t" "mp4" "mpeg" "ogg" "quicktime" "vnd.avi"
+      "vnd.mpegurl" "vnd.radgamettools.bink" "vnd.radgamettools.smacker" "vnd.rn-realvideo" "vnd.vivo"
+      "vnd.youtube.yt" "wavelet" "webm" "x-anim" "x-flic" "x-flv" "x-javafx" "x-matroska"
+      "x-matroska-3d" "x-mjpeg" "x-mng" "x-ms-wmv" "x-nsv" "x-ogm+ogg" "x-sgi-movie" "x-theora+ogg"
+    ] ++ [ "application/vnd.rn-realmedia" "application/mxf" "application/vnd.ms-asf" ]) (_: [ "vlc.desktop" ])
+    // lib.genAttrs (map (t: "image/${t}") [
+      "apng" "avif" "bmp" "gif" "heif" "jp2" "jpeg" "jpm" "jpx" "jxl" "openraster" "png" "qoi"
+      "svg+xml" "svg+xml-compressed" "tiff" "vnd.adobe.photoshop" "vnd.microsoft.icon" "vnd.wap.wbmp"
+      "vnd.zbrush.pcx" "webp" "x-dds" "x-eps" "x-exr" "x-icns" "x-ilbm" "x-portable-anymap"
+      "x-portable-bitmap" "x-portable-graymap" "x-portable-pixmap" "x-rgb" "x-sun-raster" "x-tga"
+      "x-tiff-multipage" "x-xbitmap" "x-xcf" "x-xpixmap"
+      # photos brutes (RAW) des appareils photo
+      "x-dcraw" "x-adobe-dng" "x-canon-cr2" "x-canon-cr3" "x-canon-crw" "x-fuji-raf" "x-kodak-dcr"
+      "x-kodak-k25" "x-kodak-kdc" "x-minolta-mrw" "x-nikon-nef" "x-nikon-nrw" "x-olympus-orf"
+      "x-panasonic-rw" "x-panasonic-rw2" "x-pentax-pef" "x-sigma-x3f" "x-sony-arw" "x-sony-sr2"
+      "x-sony-srf"
+    ]) (_: [ "qimgv.desktop" ]);
   };
+  # Les applications KDE (Dolphin...) lisent ces choix dans leur propre cache, qu'elles ne
+  # refont que si le fichier est plus récent que lui : or Nix date tous ses fichiers de 1970.
+  # On efface donc ce cache quand les choix changent ; il est refait au lancement suivant.
+  xdg.configFile."mimeapps.list".onChange = ''rm -f "${config.xdg.cacheHome}"/ksycoca6_*'';
+  # Menu des applications, pour KDE : hors de Plasma, sans lui, les applications KDE (Dolphin...)
+  # ne connaissent AUCUNE application installée. Un double-clic sur une vidéo ouvrait alors
+  # seulement "Choisir une application" avec une liste vide. Ce menu les inclut toutes.
+  xdg.configFile."menus/applications.menu" = {
+    text = ''
+      <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN" "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
+      <Menu>
+        <Name>Applications</Name>
+        <DefaultAppDirs/>
+        <DefaultDirectoryDirs/>
+        <Include><All/></Include>
+      </Menu>
+    '';
+    onChange = ''rm -f "${config.xdg.cacheHome}"/ksycoca6_*'';
+  };
+  # Programmes qui lisent la variable BROWSER plutôt que les réglages ci-dessus
+  home.sessionVariables.BROWSER = "firefox";
 
   # --- Terminal : Kitty (Super+Entrée) ----------------------------------------
   programs.kitty = {

@@ -339,7 +339,7 @@ impl Selection {
         let morceau = self.image.new_subpixbuf(x, y, l, h);
         let destination = self.fichier.with_file_name(format!(
             "{}-zone.png",
-            self.fichier.file_stem().map_or("capture".into(), |n| n.to_string_lossy())
+            self.fichier.file_stem().map_or_else(|| "capture".into(), |n| n.to_string_lossy())
         ));
         let enregistre = morceau.savev(&destination, "png", &[]).is_ok();
         let _ = std::fs::remove_file(&self.fichier);

@@ -25,6 +25,7 @@ mod selection;
 mod session;
 mod son;
 mod style;
+mod systeme;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -252,7 +253,7 @@ impl Panneaux {
         if demande == "reduites" && deja_affiche.as_deref() != Some(demande) {
             // Une seule fenêtre réduite : le clic sur l'icône la ramène directement,
             // sans passer par la liste (qui ne sert que s'il y en a plusieurs).
-            let fenetres = reduites::fenetres_reduites();
+            let fenetres = outils::fenetres_reduites();
             if let [seule] = fenetres.as_slice() {
                 reduites::ramener(seule);
                 outils::rafraichir_barre(9);
@@ -300,7 +301,8 @@ fn nouvel_etat(app: &gio::Application) -> App {
 
 fn main() -> glib::ExitCode {
     let arguments: Vec<String> = std::env::args().collect();
-    // Modules de la barre et petites commandes : sans GTK, donc instantanés (barre.rs)
+    // Modules de la barre et petites commandes (barre.rs). La barre appelle plutôt
+    // "panneaux-barre", le même code sans GTK, qui démarre bien plus vite (barre_seule.rs).
     if let Some(code) = barre::commande(&arguments) {
         return glib::ExitCode::from(code as u8);
     }

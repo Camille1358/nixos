@@ -74,30 +74,8 @@ in
   '';
 
 
-  # ---------------------------------------------------------------------------
-  # Raccourcis Discord utilisables depuis n'importe quelle application
-  # ---------------------------------------------------------------------------
-  # Sous Wayland, Discord ne reçoit les touches que quand sa fenêtre est au premier plan.
-  # Hyprland lui transmet donc lui-même les raccourcis listés ici, où que tu sois. La touche
-  # garde aussi son effet normal dans l'application active.
-  # Ajouter un raccourci : une ligne vers_discord("touche", "modificateurs"), avec le MÊME
-  # raccourci que dans Discord (Paramètres > Raccourcis clavier). Modificateurs possibles :
-  # "", "CTRL", "SHIFT", "ALT", "CTRL SHIFT"... Noms des touches : F7, M, 1, Left...
-  # (déclaré à part : la dictée, plus haut, définit déjà la même option dans ce fichier)
-  imports = [{
-    wayland.windowManager.hyprland.extraConfig = lib.mkAfter ''
-    local function vers_discord(touche, mods)
-      local combinaison = (mods ~= "" and (mods:gsub(" ", " + ") .. " + ") or "") .. touche
-      hl.bind(combinaison, function()
-        local active = hl.get_active_window()
-        if active and active.class == "discord" then return end -- Discord la reçoit déjà
-        hl.dispatch(hl.dsp.send_shortcut({ window = "class:^(discord)$", mods = mods, key = touche }))
-      end, { non_consuming = true })
-    end
-
-    vers_discord("F7", "") -- couper / rétablir le micro (TOGGLE_MUTE dans Discord)
-    '';
-  }];
+  # (Raccourcis Discord utilisables depuis n'importe quelle application : réglage
+  # "raccourcisDiscord" en haut de desktop-home.nix.)
   # Pastille de dictée : en haut à droite, arrondie comme les modules de la barre.
   services.mako.settings."app-name=dictee" = {
     width = 230;

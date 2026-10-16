@@ -7,21 +7,9 @@ use serde_json::Value;
 
 use crate::App;
 use crate::outils::{
-    boite, bouton_icone, etiquette, executer, hyprland, icone, rafraichir_barre, separateur,
+    boite, bouton_icone, etiquette, executer, fenetres_reduites, hyprland, icone, rafraichir_barre,
+    separateur,
 };
-
-const ESPACE_REDUITES: &str = "special:reduites";
-
-/// Adresse et titre des fenêtres réduites.
-pub fn fenetres_reduites() -> Vec<Value> {
-    match hyprland("clients") {
-        Value::Array(fenetres) => fenetres
-            .into_iter()
-            .filter(|f| f["workspace"]["name"].as_str() == Some(ESPACE_REDUITES))
-            .collect(),
-        _ => Vec::new(),
-    }
-}
 
 /// Ramène la fenêtre sur l'espace de travail affiché et lui donne la main.
 pub fn ramener(fenetre: &Value) {

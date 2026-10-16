@@ -7,6 +7,7 @@
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::LazyLock;
 
 use chrono::{DateTime, Duration, Local, TimeZone};
 use gtk::pango;
@@ -60,12 +61,14 @@ fn lire_notifications() -> Vec<Value> {
     notifications
 }
 
+static BALISE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").unwrap());
+static CODE_HTML: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);").unwrap());
+
 /// Texte brut : sans les balises de mise en forme (<b>...) ni les codes HTML (&amp;).
 pub fn sans_balises(texte: &str) -> String {
-    let balise = Regex::new(r"<[^>]*>").unwrap();
-    let sans = balise.replace_all(texte, "");
-    let code = Regex::new(r"&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);").unwrap();
-    code.replace_all(&sans, |m: &regex::Captures| {
+    let sans = BALISE.replace_all(texte, "");
+    CODE_HTML.replace_all(&sans, |m: &regex::Captures| {
         let nom = &m[1];
         let lettre = if let Some(hexa) = nom.strip_prefix("#x").or_else(|| nom.strip_prefix("#X")) {
             u32::from_str_radix(hexa, 16).ok().and_then(char::from_u32)
@@ -275,7 +278,7 @@ impl Notifications {
             let _ = std::fs::write(fin_dnd(), fin.timestamp().to_string());
             // Chemins complets : le minuteur ne connaît pas le PATH du panneau
             let chemin = |nom: &str| {
-                chercher_programme(nom).map_or(nom.to_owned(), |p| p.to_string_lossy().into_owned())
+                chercher_programme(nom).map_or_else(|| nom.to_owned(), |p| p.to_string_lossy().into_owned())
             };
             let fin_mode =
                 format!("{} mode -r do-not-disturb; {} -RTMIN+10 waybar", chemin("makoctl"), chemin("pkill"));

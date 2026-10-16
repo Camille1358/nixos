@@ -14,9 +14,8 @@
 //! sous le curseur ; l'icône est une petite surface Wayland que les clics traversent.
 
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::fd::AsFd;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -37,8 +36,8 @@ use wayland_protocols_wlr::virtual_pointer::v1::client::{
     zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
 };
 
-use crate::outils::dossier_session;
 use crate::style::THEME;
+use crate::systeme::{dossier_session, hyprland};
 
 const ZONE_NEUTRE: f64 = 4.0; // points autour du point de départ où rien ne défile
 const IMAGES_PAR_SECONDE: f64 = 60.0;
@@ -49,20 +48,9 @@ pub fn temoin() -> PathBuf {
     dossier_session().join("defilement-auto")
 }
 
-/// Question à Hyprland par sa prise de communication (sans lancer hyprctl : 60 fois par
-/// seconde, ça compte). Exemple : "j/cursorpos".
-fn hyprland(question: &str) -> Option<Value> {
-    let signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
-    let chemin = dossier_session().join("hypr").join(signature).join(".socket.sock");
-    let mut prise = UnixStream::connect(chemin).ok()?;
-    prise.write_all(question.as_bytes()).ok()?;
-    let mut reponse = String::new();
-    prise.read_to_string(&mut reponse).ok()?;
-    serde_json::from_str(&reponse).ok()
-}
-
+/// Position de la souris (demandée à Hyprland 60 fois par seconde, sans lancer de programme).
 fn position() -> Option<(f64, f64)> {
-    let p = hyprland("j/cursorpos")?;
+    let p = hyprland("cursorpos");
     Some((p["x"].as_f64()?, p["y"].as_f64()?))
 }
 
@@ -130,7 +118,7 @@ pub fn lancer() {
         return;
     }
     // Applications laissées à leur propre défilement automatique (réglage, vide d'office)
-    let fenetre = hyprland("j/activewindow").unwrap_or(Value::Null);
+    let fenetre = hyprland("activewindow");
     let classe = fenetre["class"].as_str().map(str::to_lowercase).unwrap_or_default();
     if THEME.defilement_auto_sauf.iter().any(|sauf| classe.contains(&sauf.to_lowercase())) {
         return;
@@ -237,8 +225,9 @@ fn afficher_icone(
     let viewporter: WpViewporter = globaux.bind(qh, 1..=1, ())?;
 
     // Écran sous la souris : sa position (pour placer l'icône) et son échelle (pour la netteté)
-    let ecran = hyprland("j/monitors")
-        .and_then(|m| m.as_array()?.iter().find(|m| m["focused"] == true).cloned())
+    let ecran = hyprland("monitors")
+        .as_array()
+        .and_then(|m| m.iter().find(|m| m["focused"] == true).cloned())
         .unwrap_or(Value::Null);
     let (ex, ey) = (ecran["x"].as_f64().unwrap_or(0.0), ecran["y"].as_f64().unwrap_or(0.0));
     let echelle = ecran["scale"].as_f64().unwrap_or(1.0).max(1.0);
@@ -292,7 +281,7 @@ fn dessiner_icone(cote: i32) -> Vec<u8> {
                     // Coordonnées de 0 à 1 dans l'icône, centre en (0,5 ; 0,5)
                     let x = (f64::from(px) + (f64::from(sx) + 0.5) / 4.0) / c - 0.5;
                     let y = (f64::from(py) + (f64::from(sy) + 0.5) / 4.0) / c - 0.5;
-                    let d = (x * x + y * y).sqrt();
+                    let d = x.hypot(y);
                     let (couleur, opacite) = if d > 0.48 {
                         continue; // hors du rond
                     } else if !(0.06..=0.42).contains(&d) || fleche(x, y) {

@@ -5,6 +5,58 @@
 let
   local = import ./local.nix;
 
+  # ===========================================================================
+  # REFROIDISSEMENT (la carte graphique s'éteignait en surchauffe en jeu)
+  # ===========================================================================
+  # Ventilateurs de la carte graphique, selon la température la plus chaude de la puce
+  # ("junction" ; coupure d'urgence à 115 °C) : température → vitesse (0.5 = 50 %).
+  courbeCarteGraphique = { "40" = 0.30; "55" = 0.40; "65" = 0.55; "75" = 0.75; "85" = 0.95; "90" = 1.0; };
+  # Puissance maximale de la carte, en watts (origine : 272). Un peu moins = beaucoup moins
+  # de chaleur pour quelques % d'images par seconde en moins. null = réglage d'origine.
+  puissanceCarteGraphique = 240;
+  # Ventilateurs du boîtier (boîtier NZXT) : vitesse en % selon la plus chaude des
+  # températures carte graphique / processeur. Ils restaient bloqués à 25 %.
+  courbeBoitier = [
+    { jusqua = 50; vitesse = 35; }
+    { jusqua = 60; vitesse = 45; }
+    { jusqua = 70; vitesse = 60; }
+    { jusqua = 80; vitesse = 80; }
+  ]; # au-delà : 100 %
+  # ===========================================================================
+
+  # Identifiant de la carte graphique pour LACT (constructeur:modèle-…-emplacement PCI)
+  carteGraphique = "1002:73BF-1043:04F2-0000:03:00.0";
+
+  ventilationBoitier = pkgs.writeShellScript "ventilation-boitier" ''
+    # Plus haute température (en degrés) parmi la carte graphique et le processeur
+    temperature() {
+      max=0
+      for f in /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input /sys/class/hwmon/hwmon*/temp1_input; do
+        [ -r "$f" ] || continue
+        case "$(cat "$(dirname "$f")/name")" in amdgpu|k10temp) ;; *) continue ;; esac
+        t=$(( $(cat "$f") / 1000 ))
+        [ "$t" -gt "$max" ] && max=$t
+      done
+      echo "$max"
+    }
+    vitesse() {
+      ${lib.concatMapStrings (p: ''[ "$1" -lt ${toString p.jusqua} ] && { echo ${toString p.vitesse}; return; }
+      '') courbeBoitier}echo 100
+    }
+    while true; do
+      t=$(temperature)
+      pwm=$(( $(vitesse "$t") * 255 / 100 ))
+      for h in /sys/class/hwmon/hwmon*; do
+        [ "$(cat $h/name)" = nzxtsmart2 ] || continue
+        for i in 1 2 3; do
+          [ "$(cat $h/pwm''${i}_enable 2>/dev/null)" = 0 ] && continue # rien de branché
+          echo "$pwm" > $h/pwm$i 2>/dev/null
+        done
+      done
+      sleep 3
+    done
+  '';
+
   # Réglage du Ryzen 9 7950X3D : ses deux moitiés ne se valent pas en jeu.
   #   "cache"     = privilégie les 8 cœurs au gros cache 3D (meilleurs en jeu)
   #   "frequency" = privilégie les 8 cœurs les plus rapides (meilleurs pour le reste)
@@ -59,6 +111,37 @@ in
 
   # LACT : courbe de ventilation, limites de puissance et surveillance de la carte graphique
   services.lact.enable = true;
+  # Réglages de LACT écrits ici (courbe de ventilation et puissance : voir en haut du fichier).
+  # Note : l'application LACT ne peut plus les modifier elle-même, c'est ce fichier qui décide.
+  services.lact.settings = {
+    version = 5;
+    daemon = { log_level = "info"; admin_group = "wheel"; disable_clocks_cleanup = false; };
+    apply_settings_timer = 5;
+    gpus.${carteGraphique} = {
+      fan_control_enabled = true;
+      fan_control_settings = {
+        mode = "curve";
+        static_speed = 0.5;
+        temperature_key = "junction";
+        interval_ms = 500;
+        curve = courbeCarteGraphique;
+        spindown_delay_ms = 5000; # ne ralentit qu'après 5 s plus froides (pas de yoyo)
+        change_threshold = 2;
+      };
+    } // lib.optionalAttrs (puissanceCarteGraphique != null) { power_cap = puissanceCarteGraphique * 1.0; };
+  };
+  # La courbe a pour clés des températures : Nix les écrit entre guillemets ('40':), LACT
+  # attend des nombres (40:). On retire les guillemets dans le fichier produit.
+  environment.etc."lact/config.yaml".source = lib.mkForce (pkgs.runCommand "lact-config.yaml" { } ''
+    sed -E "s/^( +)'([0-9]+)':/\1\2:/" ${(pkgs.formats.yaml { }).generate "lact-brut.yaml" config.services.lact.settings} > $out
+  '');
+
+  # Ventilateurs du boîtier : vérifie la température toutes les 3 s et règle leur vitesse
+  systemd.services.ventilation-boitier = {
+    description = "Ventilateurs du boîtier selon la température";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = { ExecStart = ventilationBoitier; Restart = "always"; RestartSec = 5; };
+  };
 
   # ---------------------------------------------------------------------------
   # Steam, Proton, GameMode

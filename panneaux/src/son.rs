@@ -25,6 +25,28 @@ fn pactl_liste(quoi: &str) -> Vec<Value> {
     serde_json::from_str(&pactl(&["-f", "json", "list", quoi])).unwrap_or_default()
 }
 
+/// Noms de la sortie et du micro utilisés par défaut (une seule question au serveur de son).
+fn par_defaut() -> (String, String) {
+    let infos: Value = serde_json::from_str(&pactl(&["-f", "json", "info"])).unwrap_or_default();
+    let nom = |cle: &str| infos[cle].as_str().unwrap_or_default().to_owned();
+    (nom("default_sink_name"), nom("default_source_name"))
+}
+
+/// Nom lisible d'une sortie. pactl ne sait pas écrire certains accents en JSON ("Stéréo") et
+/// répond alors "(null)" : on prend le nom de l'appareil, et celui de l'écran s'il y en a un.
+fn nom_lisible(sortie: &Value) -> String {
+    let texte = |v: &Value| v.as_str().filter(|t| !t.is_empty() && *t != "(null)").map(str::to_owned);
+    texte(&sortie["description"])
+        .or_else(|| {
+            let appareil = texte(&sortie["properties"]["device.description"])?;
+            Some(match texte(&sortie["properties"]["node.nick"]) {
+                Some(ecran) if ecran != appareil => format!("{appareil} · {ecran}"),
+                _ => appareil,
+            })
+        })
+        .unwrap_or_else(|| sortie["name"].as_str().unwrap_or("?").to_owned())
+}
+
 /// Volume en pourcentage d'une sortie, d'un micro ou d'une application (premier canal).
 fn volume_de(element: &Value) -> i32 {
     element["volume"]
@@ -51,8 +73,9 @@ pub fn creer(app: &App) -> gtk::Box {
 impl Son {
     fn construire(self: &Rc<Self>) {
         vider(&self.racine);
-        self.partie_sortie();
-        self.partie_micro();
+        let (sortie, micro) = par_defaut();
+        self.partie_sortie(&sortie);
+        self.partie_micro(&micro);
         self.partie_applications();
         self.racine.append(&separateur());
         let s = Rc::clone(self);
@@ -62,13 +85,12 @@ impl Son {
         }));
     }
 
-    fn partie_sortie(self: &Rc<Self>) {
+    fn partie_sortie(self: &Rc<Self>, nom_actuel: &str) {
         let sorties = pactl_liste("sinks");
-        let nom_actuel = pactl(&["get-default-sink"]).trim().to_owned();
         self.racine.append(&etiquette("SORTIE", &["titre"]));
-        if let Some(actuelle) = sorties.iter().find(|s| s["name"].as_str() == Some(&nom_actuel)) {
+        if let Some(actuelle) = sorties.iter().find(|s| s["name"].as_str() == Some(nom_actuel)) {
             let s = Rc::clone(self);
-            self.racine.append(&self.ligne_volume(
+            self.racine.append(&Self::ligne_volume(
                 actuelle,
                 (icone::SON, icone::SON_COUPE),
                 Rc::new(|v| lancer(&["pactl", "set-sink-volume", "@DEFAULT_SINK@", &format!("{v}%")])),
@@ -78,10 +100,7 @@ impl Son {
         // Choix de la sortie : casque, enceintes, écran...
         for sortie in &sorties {
             let nom = sortie["name"].as_str().unwrap_or("?").to_owned();
-            let description = match sortie["description"].as_str() {
-                Some(d) if !d.is_empty() && d != "(null)" => d.to_owned(),
-                _ => nom.clone(),
-            };
+            let description = nom_lisible(sortie);
             let choisie = nom == nom_actuel;
             let s = Rc::clone(self);
             self.racine.append(&bouton_icone(
@@ -94,16 +113,15 @@ impl Son {
         }
     }
 
-    fn partie_micro(self: &Rc<Self>) {
-        let nom_actuel = pactl(&["get-default-source"]).trim().to_owned();
+    fn partie_micro(self: &Rc<Self>, nom_actuel: &str) {
         let sources = pactl_liste("sources");
-        let Some(micro) = sources.iter().find(|s| s["name"].as_str() == Some(&nom_actuel)) else {
+        let Some(micro) = sources.iter().find(|s| s["name"].as_str() == Some(nom_actuel)) else {
             return;
         };
         self.racine.append(&separateur());
         self.racine.append(&etiquette("MICRO", &["titre"]));
         let s = Rc::clone(self);
-        self.racine.append(&self.ligne_volume(
+        self.racine.append(&Self::ligne_volume(
             micro,
             (icone::MICRO, icone::MICRO_COUPE),
             Rc::new(|v| lancer(&["pactl", "set-source-volume", "@DEFAULT_SOURCE@", &format!("{v}%")])),
@@ -130,7 +148,7 @@ impl Son {
             e.set_margin_start(10);
             self.racine.append(&e);
             let (s, n) = (Rc::clone(self), numero.clone());
-            self.racine.append(&self.ligne_volume(
+            self.racine.append(&Self::ligne_volume(
                 appli,
                 (icone::SON, icone::SON_COUPE),
                 Rc::new(move |v| lancer(&["pactl", "set-sink-input-volume", &numero, &format!("{v}%")])),
@@ -141,7 +159,6 @@ impl Son {
 
     /// Une ligne : bouton couper/rétablir, curseur de volume, pourcentage.
     fn ligne_volume(
-        &self,
         element: &Value,
         icones: (&str, &str),
         regler: Rc<dyn Fn(i32)>,
@@ -185,5 +202,22 @@ impl Son {
     fn pactl_puis_redessiner(self: &Rc<Self>, arguments: &[&str]) {
         pactl(arguments);
         self.construire();
+    }
+}
+
+#[cfg(test)]
+mod essais {
+    use serde_json::json;
+
+    use super::nom_lisible;
+
+    #[test]
+    fn noms_des_sorties() {
+        assert_eq!(nom_lisible(&json!({ "name": "a", "description": "Casque" })), "Casque");
+        // accent illisible pour pactl : le nom de l'appareil, et celui de l'écran
+        let hdmi = json!({ "name": "alsa_output.hdmi", "description": "(null)",
+            "properties": { "device.description": "Navi 21 HDMI", "node.nick": "PG32UCDM" } });
+        assert_eq!(nom_lisible(&hdmi), "Navi 21 HDMI · PG32UCDM");
+        assert_eq!(nom_lisible(&json!({ "name": "brut", "description": "(null)" })), "brut");
     }
 }

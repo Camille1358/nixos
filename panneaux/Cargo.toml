@@ -6,6 +6,17 @@ version = "2.0.0"
 edition = "2024"
 publish = false
 
+# Deux programmes : les panneaux (GTK), et les modules de la barre sans GTK, qui démarrent
+# en quelques millisecondes (la barre les lance toutes les quelques secondes).
+[[bin]]
+name = "panneaux"
+path = "src/main.rs"
+
+[[bin]]
+name = "panneaux-barre"
+path = "src/barre_seule.rs"
+test = false # même code que "panneaux", déjà testé avec lui
+
 [dependencies]
 gtk = { package = "gtk4", version = "0.11", features = ["v4_14"] }
 gtk4-layer-shell = "0.8"
@@ -16,6 +27,18 @@ wayland-client = "0.31" # défilement automatique : souris virtuelle (barre.rs)
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 wayland-protocols = { version = "0.32", features = ["client"] } # taille exacte de l'icône du défilement
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+# Vérifications de clippy en plus des habituelles (rust-analyzer les montre aussi dans VS Code) :
+# celles qui signalent du travail fait pour rien.
+[lints.clippy]
+or_fun_call = "warn"            # valeur de secours calculée même quand elle ne sert pas
+redundant_clone = "warn"        # copie inutile
+needless_pass_by_value = "warn" # donnée cédée alors qu'un prêt suffit
+format_push_string = "warn"     # texte intermédiaire fabriqué pour rien
+assigning_clones = "warn"       # nouvelle allocation au lieu de réutiliser l'ancienne
+unused_self = "warn"            # méthode qui n'utilise pas son objet
+needless_collect = "warn"       # liste construite pour être parcourue une seule fois
+imprecise_flops = "warn"        # calcul flottant moins précis que la fonction prévue
 
 [profile.release]
 opt-level = 3

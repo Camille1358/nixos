@@ -1,43 +1,26 @@
 //! Menu session : éteindre, redémarrer, veille, arrêt programmé, veille automatique,
 //! verrouiller, déconnexion.
 
-use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::LazyLock;
 
-use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
+use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
 use gtk::prelude::*;
 use regex::Regex;
 
 use crate::App;
 use crate::outils::{
-    boite, bouton_icone, dossier_session, etiquette, executer, icone, lancer, notifier, rafraichir_barre,
-    separateur, vider,
+    arret_prevu, boite, bouton_icone, drapeau_veille, etiquette, executer, icone, lancer, notifier,
+    rafraichir_barre, separateur, vider,
 };
 use crate::style::THEME;
 
-/// Si ce fichier existe, la veille automatique de l'ordinateur est désactivée
-/// (même convention que le script "veille-auto" de desktop-home.nix).
-pub fn drapeau() -> PathBuf {
-    dossier_session().join("veille-auto-desactivee")
-}
-
-/// Moment de l'arrêt programmé, ou None s'il n'y en a pas.
-pub fn arret_prevu() -> Option<NaiveDateTime> {
-    let (_, texte) = executer(&[
-        "busctl",
-        "get-property",
-        "org.freedesktop.login1",
-        "/org/freedesktop/login1",
-        "org.freedesktop.login1.Manager",
-        "ScheduledShutdown",
-    ]);
-    let champs: Vec<&str> = texte.split_whitespace().collect(); // exemple : (st) "poweroff" 1791234567000000
-    if champs.len() < 3 || champs[1] == "\"\"" {
-        return None;
-    }
-    let microsecondes: i64 = champs[2].parse().ok()?;
-    Some(Local.timestamp_micros(microsecondes).single()?.naive_local())
-}
+// Formes de date et d'heure comprises (préparées une seule fois)
+static DEMAIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(apr[eè]s-demain|demain)\s+(.*)$").unwrap());
+static ISO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\d{4})-(\d{1,2})-(\d{1,2})\s+(.*)$").unwrap());
+static FRANCAISE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(\d{1,2})/(\d{1,2})(?:/(\d{4}))?\s+(.*)$").unwrap());
+static HEURE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\d{1,2})\s*(?:[:h]\s*(\d{2})?)?$").unwrap());
 
 /// Transforme le texte tapé en date et heure, ou None si ce n'est pas compris.
 ///
@@ -53,18 +36,15 @@ pub fn analyser_moment(saisie: &str, maintenant: NaiveDateTime) -> Option<NaiveD
     let mut jour: Option<NaiveDate> = None; // date précise, si elle est donnée
     let mut dans_jours = 0; // sinon : 0 = aujourd'hui, 1 = demain, 2 = après-demain
 
-    let demain = Regex::new(r"^(apr[eè]s-demain|demain)\s+(.*)$").unwrap();
-    if let Some(m) = demain.captures(texte) {
+    if let Some(m) = DEMAIN.captures(texte) {
         dans_jours = if m[1].starts_with("apr") { 2 } else { 1 };
         texte = m.get(2).unwrap().as_str();
     }
 
-    let iso = Regex::new(r"^(\d{4})-(\d{1,2})-(\d{1,2})\s+(.*)$").unwrap();
-    let francaise = Regex::new(r"^(\d{1,2})/(\d{1,2})(?:/(\d{4}))?\s+(.*)$").unwrap();
-    if let Some(m) = iso.captures(texte) {
+    if let Some(m) = ISO.captures(texte) {
         jour = Some(NaiveDate::from_ymd_opt(m[1].parse().ok()?, m[2].parse().ok()?, m[3].parse().ok()?)?);
         texte = m.get(4).unwrap().as_str();
-    } else if let Some(m) = francaise.captures(texte) {
+    } else if let Some(m) = FRANCAISE.captures(texte) {
         let an = match m.get(3) {
             Some(a) => a.as_str().parse().ok()?,
             None => chrono::Datelike::year(&maintenant),
@@ -74,12 +54,11 @@ pub fn analyser_moment(saisie: &str, maintenant: NaiveDateTime) -> Option<NaiveD
     }
 
     // 23:30, 7h30, 7h, 7
-    let heure = Regex::new(r"^(\d{1,2})\s*(?:[:h]\s*(\d{2})?)?$").unwrap();
-    let m = heure.captures(texte)?;
+    let m = HEURE.captures(texte)?;
     let minutes = m.get(2).map_or(Some(0), |x| x.as_str().parse().ok())?;
     let heure = NaiveTime::from_hms_opt(m[1].parse().ok()?, minutes, 0)?;
     let date_seule = jour.is_none() && dans_jours == 0;
-    let jour = jour.unwrap_or(maintenant.date() + Duration::days(dans_jours));
+    let jour = jour.unwrap_or_else(|| maintenant.date() + Duration::days(dans_jours));
     let mut moment = jour.and_time(heure);
     if date_seule && moment <= maintenant {
         moment += Duration::days(1); // une heure déjà passée aujourd'hui = demain
@@ -124,7 +103,7 @@ impl Session {
             r.append(&bouton_icone(icone::ANNULER, &texte, 0, &[], move || s.annuler_arret()));
         } else {
             let (revelateur, saisie) = self.zone_de_saisie();
-            let (rv, sa) = (revelateur.clone(), saisie.clone());
+            let (rv, sa) = (revelateur.clone(), saisie);
             r.append(&bouton_icone(icone::SABLIER, "Programmer un arrêt…", 0, &[], move || {
                 let ouvert = !rv.reveals_child();
                 rv.set_reveal_child(ouvert);
@@ -136,7 +115,7 @@ impl Session {
         }
 
         let s = Rc::clone(self);
-        if drapeau().exists() {
+        if drapeau_veille().exists() {
             r.append(&bouton_icone(
                 icone::CAFE,
                 "Veille auto de l'ordi : désactivée",
@@ -210,7 +189,7 @@ impl Session {
     }
 
     fn basculer_veille(self: &Rc<Self>) {
-        let drapeau = drapeau();
+        let drapeau = drapeau_veille();
         if drapeau.exists() {
             let _ = std::fs::remove_file(&drapeau);
             let texte = format!("Réactivée : veille après {} min d'inactivité.", THEME.ordi_en_veille_apres);

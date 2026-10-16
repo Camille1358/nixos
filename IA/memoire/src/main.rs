@@ -9,6 +9,9 @@
 //! c'est lui qui calcule les vecteurs, avec le même modèle que pour les agents, qui retrouvent
 //! donc ces messages avec "qdrant-find".
 //!
+//! Ces fichiers ne font que s'allonger : l'endroit atteint dans chacun est noté, et seule la
+//! suite est lue la fois d'après (au lieu de relire des centaines de Mo toutes les 30 minutes).
+//!
 //! Gardé : ce que l'utilisateur a écrit, les réponses de Claude, une ligne par action (sa
 //! description). Laissé de côté : les résultats bruts des commandes, les réflexions internes,
 //! les images. Les secrets reconnaissables (clés "sk-...", clés WireGuard, mots de passe écrits
@@ -20,10 +23,10 @@
 //!   MEMOIRE_ETAT      fichier où sont notés les messages déjà rangés
 //!   MEMOIRE_SOURCES   dossier des conversations (par défaut : ~/.claude/projects)
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -55,7 +58,7 @@ struct Nettoyage {
 impl Nettoyage {
     fn new() -> Self {
         let r = |motif: &str| Regex::new(motif).expect("motif valide");
-        Nettoyage {
+        Self {
             secrets: vec![
                 // d'abord "mot de passe = ...", sinon la valeur serait masquée deux fois
                 (
@@ -127,7 +130,7 @@ fn texte_claude(contenu: &Value) -> String {
                 let entree = &p["input"];
                 let quoi = entree["description"]
                     .as_str()
-                    .or(entree["file_path"].as_str())
+                    .or_else(|| entree["file_path"].as_str())
                     .map(str::to_owned)
                     .unwrap_or_else(|| {
                         entree["command"]
@@ -165,13 +168,27 @@ fn empreinte(texte: &str) -> String {
     format!("{h:016x}")
 }
 
-fn messages(fichier: &Path, n: &Nettoyage) -> Vec<Message> {
-    let Ok(f) = fs::File::open(fichier) else {
-        return Vec::new();
+/// Messages d'une conversation, à partir de l'octet `depuis` (là où la lecture précédente
+/// s'était arrêtée). Renvoie aussi où reprendre la prochaine fois : après la dernière ligne
+/// complète (une ligne en cours d'écriture sera lue entière la fois suivante).
+fn messages(fichier: &Path, n: &Nettoyage, depuis: u64) -> (Vec<Message>, u64) {
+    let Ok(mut f) = fs::File::open(fichier) else {
+        return (Vec::new(), depuis);
     };
-    let mut liste = Vec::new();
-    for ligne in BufReader::new(f).lines().map_while(Result::ok) {
-        let Ok(e) = serde_json::from_str::<Value>(&ligne) else {
+    // Fichier plus court qu'avant : il a été réécrit, on le reprend du début
+    let depuis = if f.metadata().map_or(0, |m| m.len()) < depuis { 0 } else { depuis };
+    if f.seek(SeekFrom::Start(depuis)).is_err() {
+        return (Vec::new(), depuis);
+    }
+    let mut lecteur = BufReader::new(f);
+    let (mut liste, mut position, mut ligne) = (Vec::new(), depuis, Vec::new());
+    loop {
+        ligne.clear();
+        match lecteur.read_until(b'\n', &mut ligne) {
+            Ok(lus) if lus > 0 && ligne.ends_with(b"\n") => position += lus as u64,
+            _ => break, // fin du fichier, ou ligne pas encore terminée
+        }
+        let Ok(e) = serde_json::from_slice::<Value>(&ligne) else {
             continue;
         };
         let genre = e["type"].as_str().unwrap_or_default();
@@ -207,7 +224,7 @@ fn messages(fichier: &Path, n: &Nettoyage) -> Vec<Message> {
             dossier: e["cwd"].as_str().unwrap_or_default().to_owned(),
         });
     }
-    liste
+    (liste, position)
 }
 
 /// Coupe un long texte en morceaux d'environ `taille` caractères, entre deux lignes.
@@ -302,7 +319,7 @@ impl ServeurMcp {
             .spawn()?;
         let entree = processus.stdin.take().ok_or("pas d'entrée")?;
         let sortie = BufReader::new(processus.stdout.take().ok_or("pas de sortie")?);
-        let mut serveur = ServeurMcp {
+        let mut serveur = Self {
             processus,
             entree,
             sortie,
@@ -310,7 +327,7 @@ impl ServeurMcp {
         };
         serveur.demander(
             "initialize",
-            json!({ "protocolVersion": "2025-03-26", "capabilities": {},
+            &json!({ "protocolVersion": "2025-03-26", "capabilities": {},
                     "clientInfo": { "name": "memoire-conversations", "version": "1" } }),
         )?;
         serveur.envoyer(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))?;
@@ -323,7 +340,7 @@ impl ServeurMcp {
         Ok(())
     }
 
-    fn demander(&mut self, methode: &str, parametres: Value) -> Result<Value, Erreur> {
+    fn demander(&mut self, methode: &str, parametres: &Value) -> Result<Value, Erreur> {
         self.numero += 1;
         let message =
             json!({ "jsonrpc": "2.0", "id": self.numero, "method": methode, "params": parametres });
@@ -348,7 +365,7 @@ impl ServeurMcp {
     fn ranger(&mut self, information: &str, meta: &Value) -> Result<(), Erreur> {
         let resultat = self.demander(
             "tools/call",
-            json!({ "name": "qdrant-store", "arguments": { "information": information, "metadata": meta } }),
+            &json!({ "name": "qdrant-store", "arguments": { "information": information, "metadata": meta } }),
         )?;
         if resultat["isError"] == true {
             return Err(resultat["content"].to_string().into());
@@ -394,11 +411,12 @@ fn executer() -> Result<usize, Erreur> {
         .unwrap_or_else(|_| {
             PathBuf::from(env::var("HOME").unwrap_or_default()).join(".claude/projects")
         });
+    // Déjà rangés : les empreintes des messages, et l'endroit atteint dans chaque conversation
     let mut deja: BTreeSet<String> = BTreeSet::new();
+    let mut positions: BTreeMap<String, u64> = BTreeMap::new();
     if !tout {
-        if let Ok(etat) =
-            fs::read_to_string(&etat_chemin).map(|t| serde_json::from_str::<Value>(&t))
-            && let Ok(etat) = etat
+        if let Ok(texte) = fs::read_to_string(&etat_chemin)
+            && let Ok(etat) = serde_json::from_str::<Value>(&texte)
         {
             deja = etat["messages"]
                 .as_array()
@@ -406,10 +424,26 @@ fn executer() -> Result<usize, Erreur> {
                 .flatten()
                 .filter_map(|m| m.as_str().map(str::to_owned))
                 .collect();
+            positions = etat["fichiers"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(f, p)| Some((f.clone(), p.as_u64()?)))
+                .collect();
         }
     } else {
         effacer_archive()?;
     }
+    // Remplacé d'un coup : l'état n'est jamais à moitié écrit
+    let garder = |deja: &BTreeSet<String>, positions: &BTreeMap<String, u64>| -> Result<(), Erreur> {
+        if let Some(dossier) = etat_chemin.parent() {
+            fs::create_dir_all(dossier)?;
+        }
+        let provisoire = etat_chemin.with_extension("tmp");
+        fs::write(&provisoire, json!({ "messages": deja, "fichiers": positions }).to_string())?;
+        fs::rename(&provisoire, &etat_chemin)?;
+        Ok(())
+    };
 
     // Conversations, de la plus ancienne à la plus récente
     let mut fichiers: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(&sources)?
@@ -425,15 +459,19 @@ fn executer() -> Result<usize, Erreur> {
     let nettoyage = Nettoyage::new();
     let mut serveur: Option<ServeurMcp> = None;
     let mut ranges = 0;
+    let mut a_noter = false; // endroits atteints avancés, sans message nouveau à ranger
     for (_, fichier) in fichiers {
-        let mut nouveaux = Vec::new();
-        for m in messages(&fichier, &nettoyage) {
-            if deja.insert(m.empreinte.clone()) {
-                // insert : aussi pas deux fois dans ce même passage
-                nouveaux.push(m);
-            }
+        let cle = fichier.to_string_lossy().into_owned();
+        let depuis = positions.get(&cle).copied().unwrap_or(0);
+        let (lus, fin) = messages(&fichier, &nettoyage, depuis);
+        if fin == depuis {
+            continue; // rien d'ajouté à cette conversation depuis la dernière fois
         }
+        positions.insert(cle, fin);
+        // (insert : un message recopié d'une autre conversation n'est pas rangé deux fois)
+        let nouveaux: Vec<Message> = lus.into_iter().filter(|m| deja.insert(m.empreinte.clone())).collect();
         if nouveaux.is_empty() {
+            a_noter = true;
             continue;
         }
         if serveur.is_none() {
@@ -452,12 +490,11 @@ fn executer() -> Result<usize, Erreur> {
             ranges += 1;
         }
         // noté après chaque conversation : une interruption ne refait pas tout
-        if let Some(dossier) = etat_chemin.parent() {
-            fs::create_dir_all(dossier)?;
-        }
-        let provisoire = etat_chemin.with_extension("tmp");
-        fs::write(&provisoire, json!({ "messages": deja }).to_string())?;
-        fs::rename(&provisoire, &etat_chemin)?;
+        garder(&deja, &positions)?;
+        a_noter = false;
+    }
+    if a_noter {
+        garder(&deja, &positions)?;
     }
     if let Some(serveur) = serveur {
         serveur.fermer();
@@ -512,10 +549,36 @@ mod essais {
         let long = "a".repeat(1300);
         let morceaux = decouper(&long, 600);
         assert_eq!(
-            morceaux.iter().map(|m| m.len()).collect::<Vec<_>>(),
+            morceaux.iter().map(String::len).collect::<Vec<_>>(),
             [600, 600, 100]
         );
         assert_eq!(decouper("ligne 1\nligne 2\n", 600), ["ligne 1\nligne 2\n"]);
+    }
+
+    #[test]
+    fn lecture_reprise_ou_elle_s_etait_arretee() {
+        let n = Nettoyage::new();
+        let fichier = env::temp_dir().join(format!("memoire-essai-{}.jsonl", std::process::id()));
+        let ligne = |uuid: &str, texte: &str| {
+            json!({ "type": "user", "uuid": uuid, "timestamp": "2026-10-16T10:00:00Z",
+                    "message": { "content": texte } })
+            .to_string()
+        };
+        // deux lignes complètes, et une troisième encore en cours d'écriture
+        let debut = format!("{}\n{}\n{}", ligne("1", "un"), ligne("2", "deux"), ligne("3", "trois"));
+        fs::write(&fichier, &debut).unwrap();
+        let (lus, fin) = messages(&fichier, &n, 0);
+        assert_eq!(lus.iter().map(|m| m.texte.as_str()).collect::<Vec<_>>(), ["un", "deux"]);
+        assert_eq!(fin as usize, debut.rfind('\n').unwrap() + 1);
+        // la ligne se termine, une autre arrive : seule la suite est lue
+        fs::write(&fichier, format!("{debut}\n{}\n", ligne("4", "quatre"))).unwrap();
+        let (lus, fin2) = messages(&fichier, &n, fin);
+        assert_eq!(lus.iter().map(|m| m.texte.as_str()).collect::<Vec<_>>(), ["trois", "quatre"]);
+        assert_eq!(messages(&fichier, &n, fin2).0.len(), 0); // rien de neuf
+        // fichier réécrit plus court : relu depuis le début
+        fs::write(&fichier, format!("{}\n", ligne("5", "cinq"))).unwrap();
+        assert_eq!(messages(&fichier, &n, fin2).0.len(), 1);
+        let _ = fs::remove_file(&fichier);
     }
 
     #[test]

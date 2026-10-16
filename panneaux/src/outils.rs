@@ -1,18 +1,16 @@
-//! Outils communs : lancer des programmes (avec le mode essai), et les briques
-//! d'affichage partagées par tous les panneaux (étiquettes, boutons, icônes).
+//! Briques d'affichage partagées par tous les panneaux (étiquettes, boutons, icônes, images).
+//! Les outils sans affichage (lancer des programmes, interroger Hyprland...) sont dans
+//! systeme.rs, repris ici tels quels.
 
-use std::io::Read;
-use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::LazyLock;
-use std::sync::mpsc;
-use std::time::Duration;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::Path;
 
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk::{gdk, gdk_pixbuf, gio, glib, pango};
-use serde_json::Value;
+
+pub use crate::systeme::*;
 
 // -----------------------------------------------------------------------------
 // Icônes de la police Nerd Font (liste : https://www.nerdfonts.com/cheat-sheet)
@@ -57,137 +55,8 @@ pub mod icone {
 }
 
 // -----------------------------------------------------------------------------
-// Dossiers
+// Travail en arrière-plan
 // -----------------------------------------------------------------------------
-/// Dossier des fichiers temporaires de la session (en mémoire vive).
-pub fn dossier_session() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
-}
-
-/// Dossier où les programmes gardent leur état (~/.local/state).
-pub fn dossier_etat() -> PathBuf {
-    match std::env::var_os("XDG_STATE_HOME") {
-        Some(d) if !d.is_empty() => PathBuf::from(d),
-        _ => glib::home_dir().join(".local/state"),
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Mode essai (lancer avec PANNEAUX_ESSAI=1) : les commandes qui changent quelque chose
-// (éteindre, verrouiller, couper le réseau, connecter un appareil...) sont seulement
-// affichées, jamais exécutées. Les commandes qui ne font que lire restent permises.
-// -----------------------------------------------------------------------------
-pub static ESSAI: LazyLock<bool> =
-    LazyLock::new(|| std::env::var_os("PANNEAUX_ESSAI").is_some_and(|v| !v.is_empty()));
-
-const COMMANDES_SENSIBLES: [&str; 3] = ["systemctl", "systemd-run", "hyprlock"];
-/// Pour ces outils, seuls ces mots-là (dans la commande) changent quelque chose :
-const VERBES_SENSIBLES: [(&str, &[&str]); 5] = [
-    ("hyprctl", &["dispatch", "eval"]),
-    ("nmcli", &["on", "off", "up", "down", "connect", "disconnect", "delete"]),
-    ("rfkill", &["block", "unblock"]),
-    ("bluetoothctl", &["pair", "trust", "connect", "disconnect", "power", "remove"]),
-    ("makoctl", &["-t", "-a", "-r", "dismiss"]),
-];
-
-/// En mode essai, affiche une commande sensible au lieu de l'exécuter.
-fn retenue(commande: &[&str]) -> bool {
-    if !*ESSAI || commande.is_empty() {
-        return false;
-    }
-    let sensible = COMMANDES_SENSIBLES.contains(&commande[0])
-        || VERBES_SENSIBLES.iter().any(|(outil, verbes)| {
-            *outil == commande[0] && commande[1..].iter().any(|mot| verbes.contains(mot))
-        });
-    if sensible {
-        eprintln!("[essai] non exécuté : {}", commande.join(" "));
-    }
-    sensible
-}
-
-// -----------------------------------------------------------------------------
-// Lancer des programmes
-// -----------------------------------------------------------------------------
-/// Lance un programme sans attendre sa fin, détaché du panneau.
-pub fn lancer(commande: &[&str]) {
-    if commande.is_empty() || retenue(commande) {
-        return;
-    }
-    let enfant = Command::new(commande[0])
-        .args(&commande[1..])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .process_group(0) // détaché : il survit à la fermeture du panneau
-        .spawn();
-    // Programme introuvable : on ne fait rien plutôt que de planter le panneau.
-    // Sinon, un fil attend sa fin pour qu'il ne reste pas en "zombie".
-    if let Ok(mut enfant) = enfant {
-        std::thread::spawn(move || enfant.wait());
-    }
-}
-
-/// Lance un programme et attend sa fin (au plus 5 secondes).
-/// Renvoie (réussi, texte affiché).
-pub fn executer(commande: &[&str]) -> (bool, String) {
-    executer_delai(commande, 5)
-}
-
-/// Comme executer, avec un délai maximal choisi (en secondes).
-///
-/// Les outils répondent en anglais (et non dans la langue du système) : leurs réponses
-/// ("enabled", "blocked"...) peuvent ainsi être lues de façon sûre.
-pub fn executer_delai(commande: &[&str], delai: u64) -> (bool, String) {
-    if commande.is_empty() {
-        return (false, String::new());
-    }
-    if retenue(commande) {
-        return (true, String::new());
-    }
-    let Ok(mut enfant) = Command::new(commande[0])
-        .args(&commande[1..])
-        .env("LC_ALL", "C.UTF-8")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return (false, String::new());
-    };
-    // La sortie est lue à part : un programme bavard ne bloque jamais en attendant
-    // qu'on le lise. La lecture finit quand le programme se termine.
-    let mut sortie = enfant.stdout.take().expect("sortie demandée ci-dessus");
-    let (envoi, reception) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut texte = Vec::new();
-        let _ = sortie.read_to_end(&mut texte);
-        let _ = envoi.send(texte);
-    });
-    match reception.recv_timeout(Duration::from_secs(delai)) {
-        Ok(texte) => {
-            let reussi = enfant.wait().is_ok_and(|statut| statut.success());
-            (reussi, String::from_utf8_lossy(&texte).into_owned())
-        }
-        Err(_) => {
-            // Trop long : on l'arrête
-            let _ = enfant.kill();
-            let _ = enfant.wait();
-            (false, String::new())
-        }
-    }
-}
-
-/// Miniature d'un écran ou d'une fenêtre (cible : "-o ÉCRAN" ou "-T FENÊTRE") en JPEG réduit.
-/// Certaines fenêtres (Steam, jeux XWayland en plein écran) ne livrent jamais d'image : grim
-/// attendrait alors sans fin. "timeout -s KILL" l'arrête au bout de 2 s, même si le panneau
-/// qui l'a lancé est déjà fermé (sinon ces captures restaient bloquées et s'accumulaient).
-pub fn miniature_grim(cible: &[&str], destination: &str) -> bool {
-    let mut commande = vec!["timeout", "-s", "KILL", "2", "grim"];
-    commande.extend_from_slice(cible);
-    commande.extend(["-s", "0.3", "-t", "jpeg", "-q", "80", destination]);
-    executer_delai(&commande, 3).0 && Path::new(destination).exists()
-}
-
 /// Exécute travail() sans figer l'affichage, puis puis(résultat) dans l'affichage.
 /// Pour les actions lentes : connexion Wi-Fi, recherche Bluetooth, miniatures...
 pub fn en_fond<T: Send + 'static>(
@@ -199,41 +68,6 @@ pub fn en_fond<T: Send + 'static>(
             puis(resultat);
         }
     });
-}
-
-pub fn notifier(titre: &str, texte: &str, urgent: bool) {
-    if urgent {
-        lancer(&["notify-send", "-u", "critical", titre, texte]);
-    } else {
-        lancer(&["notify-send", titre, texte]);
-    }
-}
-
-/// Demande à la barre (Waybar) de mettre à jour un module (8 état, 9 réduites,
-/// 10 notifications).
-pub fn rafraichir_barre(signal: u8) {
-    lancer(&["pkill", &format!("-RTMIN+{signal}"), "waybar"]);
-}
-
-/// Chemin complet d'un programme d'après le PATH (comme la commande "which").
-pub fn chercher_programme(nom: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|dossier| dossier.join(nom))
-        .find(|chemin| chemin.is_file())
-}
-
-/// Interroge Hyprland ; renvoie la réponse JSON décodée (Null en cas d'échec).
-pub fn hyprland(question: &str) -> Value {
-    serde_json::from_str(&executer(&["hyprctl", "-j", question]).1).unwrap_or(Value::Null)
-}
-
-/// Déplace un fichier, même vers un autre disque.
-pub fn deplacer(source: &Path, destination: &Path) -> std::io::Result<()> {
-    if std::fs::rename(source, destination).is_ok() {
-        return Ok(());
-    }
-    std::fs::copy(source, destination)?;
-    std::fs::remove_file(source)
 }
 
 // -----------------------------------------------------------------------------
@@ -335,9 +169,32 @@ pub fn bouton_icone(
 
 /// Image de l'application (d'après son nom ou sa classe de fenêtre), ou None.
 pub fn icone_appli(nom: &str, taille: i32) -> Option<gtk::Image> {
+    let image = gtk::Image::from_gicon(&icone_de(nom)?);
+    image.set_pixel_size(taille);
+    Some(image)
+}
+
+thread_local! {
+    /// Icônes déjà cherchées (nom -> icône) : chaque application n'est cherchée qu'une fois,
+    /// même avec plusieurs fenêtres, ou une grande et une petite image.
+    static ICONES: RefCell<HashMap<String, Option<gio::Icon>>> = RefCell::new(HashMap::new());
+}
+
+fn icone_de(nom: &str) -> Option<gio::Icon> {
     if nom.is_empty() {
         return None;
     }
+    if let Some(connue) = ICONES.with_borrow(|icones| icones.get(nom).cloned()) {
+        return connue;
+    }
+    let trouvee = chercher_icone(nom);
+    ICONES.with_borrow_mut(|icones| icones.insert(nom.to_owned(), trouvee.clone()));
+    trouvee
+}
+
+/// Le fichier .desktop de l'application (par son nom exact, puis en minuscules, puis la
+/// première application installée dont le nom ressemble), sinon l'icône du thème de ce nom.
+fn chercher_icone(nom: &str) -> Option<gio::Icon> {
     let affichage = gdk::Display::default()?;
     let theme = gtk::IconTheme::for_display(&affichage);
     let mut icones: Vec<gio::Icon> = Vec::new();
@@ -363,13 +220,66 @@ pub fn icone_appli(nom: &str, taille: i32) -> Option<gtk::Image> {
         }
     }
     icones.push(gio::ThemedIcon::new(&minuscule).upcast());
-    let icone = icones.into_iter().find(|icone| match icone.downcast_ref::<gio::FileIcon>() {
+    icones.into_iter().find(|icone| match icone.downcast_ref::<gio::FileIcon>() {
         Some(fichier) => fichier.file().path().is_some_and(|p| p.exists()),
         None => theme.has_gicon(icone),
-    })?;
-    let image = gtk::Image::from_gicon(&icone);
-    image.set_pixel_size(taille);
-    Some(image)
+    })
+}
+
+// -----------------------------------------------------------------------------
+// Cartes de fenêtres (Alt+Tab, partage d'écran)
+// -----------------------------------------------------------------------------
+/// Une carte : un cadre pour la miniature (avec l'icône de l'application en attendant),
+/// puis la petite icône et le titre. Renvoie la carte et le cadre de sa miniature.
+pub fn carte_fenetre(texte: &str, classe: &str, taille: (i32, i32), taille_icone: i32) -> (gtk::Box, gtk::CenterBox) {
+    let zone = boite(true, 8);
+    marges(&zone, 10);
+    zone.add_css_class("carte");
+    let cadre = gtk::CenterBox::new();
+    cadre.set_size_request(taille.0, taille.1);
+    cadre.add_css_class("miniature");
+    match icone_appli(classe, taille_icone) {
+        Some(image) => cadre.set_center_widget(Some(&image)),
+        None => cadre.set_center_widget(Some(&etiquette_centree(icone::FENETRE, &["grosse-icone"]))),
+    }
+    zone.append(&cadre);
+    let titre = boite(false, 6);
+    if let Some(petite) = icone_appli(classe, 18) {
+        titre.append(&petite);
+    }
+    let e = etiquette(texte, &[]);
+    couper(&e, 26);
+    e.set_hexpand(true);
+    titre.append(&e);
+    zone.append(&titre);
+    (zone, cadre)
+}
+
+/// Capture un écran ou une fenêtre (cible : "-o ÉCRAN" ou "-T FENÊTRE") sans figer
+/// l'affichage, puis pose la miniature dans `cadre` si `encore()` dit, à ce moment-là, que le
+/// panneau est toujours affiché. L'image passe par la mémoire vive et n'y reste pas.
+pub fn poser_miniature(
+    cadre: &gtk::CenterBox,
+    cible: &[&str],
+    taille: (i32, i32),
+    encore: impl Fn() -> bool + 'static,
+) {
+    let nom = cible.join("").replace(['/', ' '], "_");
+    let chemin = dossier_session().join(format!("miniature-{nom}-{}.jpg", std::process::id()));
+    let (c, cible) = (chemin.clone(), cible.iter().map(|m| (*m).to_owned()).collect::<Vec<_>>());
+    let cadre = cadre.clone();
+    en_fond(
+        move || miniature_grim(&cible.iter().map(String::as_str).collect::<Vec<_>>(), &c.to_string_lossy()),
+        move |reussi| {
+            if reussi
+                && encore()
+                && let Some((image, _, _)) = image_ajustee(&chemin, taille.0, taille.1, true)
+            {
+                cadre.set_center_widget(Some(&image));
+            }
+            let _ = std::fs::remove_file(&chemin);
+        },
+    );
 }
 
 /// Pixels réels par point d'écran (1,5 sur un écran 4K à l'échelle 1,5) : la plus grande

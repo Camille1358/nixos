@@ -9,12 +9,14 @@
 //!   panneaux capture-ecran [ecran]       capture d'écran (zone, ou écran entier), puis l'aperçu
 //!   panneaux lanceur                     lanceur d'applications (Rofi) + attrape-clic
 //!
-//! Ces commandes n'ouvrent aucune fenêtre : elles démarrent sans GTK, donc très vite (la barre
-//! en lance toutes les quelques secondes).
+//! Ces commandes n'ouvrent aucune fenêtre. La barre les lance toutes les quelques secondes,
+//! par "panneaux-barre" : le même code dans un programme sans GTK (barre_seule.rs), qui
+//! démarre en quelques millisecondes au lieu de charger toutes les bibliothèques graphiques.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::fs;
+use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,8 +26,11 @@ use std::time::Duration;
 use chrono::{Datelike, Local, TimeZone};
 use serde_json::{Value, json};
 
-use crate::outils::{dossier_etat, dossier_session, executer, lancer};
 use crate::style::THEME;
+use crate::systeme::{
+    arret_prevu, dossier_etat, dossier_session, drapeau_veille, executer, fenetres_reduites, hyprland, lancer,
+    programme_panneaux,
+};
 
 // Icônes (police Nerd Font)
 const ICONE_CPU: &str = "\u{f2db}";
@@ -40,7 +45,6 @@ const CLOCHE_SONNE: &str = "\u{f009e}";
 const CLOCHE_BARREE: &str = "\u{f009b}";
 
 const NB_APPLIS: usize = 5; // applications listées dans les infobulles
-const BATTEMENTS: f64 = 100.0; // battements du noyau par seconde (USER_HZ, 100 sous Linux)
 
 /// Lance la commande demandée et renvoie son code de sortie ; None = pas une de ces commandes.
 pub fn commande(arguments: &[String]) -> Option<i32> {
@@ -60,8 +64,21 @@ pub fn commande(arguments: &[String]) -> Option<i32> {
     Some(0)
 }
 
-fn sortie(texte: &str, infobulle: &str, classe: Value) {
+fn sortie(texte: &str, infobulle: &str, classe: &str) {
     println!("{}", json!({ "text": texte, "tooltip": infobulle, "class": classe }));
+}
+
+/// Âge d'un fichier (depuis sa dernière écriture), ou None s'il n'existe pas.
+fn age(fichier: &Path) -> Option<Duration> {
+    fs::metadata(fichier).ok()?.modified().ok()?.elapsed().ok()
+}
+
+/// Écrit un fichier d'un coup (à côté, puis renommé) : il n'est jamais lu à moitié écrit.
+fn ecrire_d_un_coup(fichier: &Path, texte: &str) {
+    let provisoire = fichier.with_extension("tmp");
+    if fs::write(&provisoire, texte).is_ok() {
+        let _ = fs::rename(provisoire, fichier);
+    }
 }
 
 /// Texte sûr pour l'infobulle (qui interprète < > & comme de la mise en forme)
@@ -71,6 +88,57 @@ fn echappe(texte: &str) -> String {
 
 fn lire(chemin: impl AsRef<Path>) -> Option<String> {
     fs::read_to_string(chemin).ok().map(|t| t.trim().to_owned())
+}
+
+/// Lecteur des petits fichiers du noyau (/proc, /sys), avec un tampon réutilisé d'un fichier à
+/// l'autre. Le noyau fabrique ces fichiers d'un coup quand on les lit : une seule lecture
+/// suffit. (`fs::read_to_string` demande d'abord leur taille, toujours 0 ici, puis lit par
+/// morceaux croissants : six appels au système par fichier, sur des centaines de fichiers à
+/// chaque mesure.)
+struct Lecteur {
+    tampon: Vec<u8>,
+}
+
+impl Lecteur {
+    fn new() -> Self {
+        Self { tampon: vec![0; 16 * 1024] }
+    }
+
+    /// Contenu brut du fichier.
+    fn octets(&mut self, chemin: impl AsRef<Path>) -> Option<&[u8]> {
+        let mut fichier = fs::File::open(chemin).ok()?;
+        let mut longueur = 0;
+        loop {
+            let lus = fichier.read(&mut self.tampon[longueur..]).ok()?;
+            longueur += lus;
+            if lus == 0 || longueur < self.tampon.len() {
+                break; // tampon pas rempli : le fichier est fini
+            }
+            let taille = self.tampon.len();
+            self.tampon.resize(taille * 2, 0); // fichier plus grand que le tampon (rare)
+        }
+        Some(&self.tampon[..longueur])
+    }
+
+    /// Contenu en texte (None s'il n'est pas en UTF-8).
+    fn texte(&mut self, chemin: impl AsRef<Path>) -> Option<&str> {
+        std::str::from_utf8(self.octets(chemin)?).ok()
+    }
+}
+
+/// Détail qui change lentement mais coûte cher à mesurer (la mémoire de chaque application) :
+/// refait au plus toutes les 15 s. Entre-temps, la barre (qui demande toutes les 3 s) reprend
+/// le précédent, gardé en mémoire vive dans le fichier `nom`.
+fn detail_garde(nom: &str, calcul: impl FnOnce() -> String) -> String {
+    let fichier = dossier_session().join(nom);
+    if age(&fichier).is_some_and(|age| age < Duration::from_secs(15))
+        && let Ok(texte) = fs::read_to_string(&fichier)
+    {
+        return texte;
+    }
+    let texte = calcul();
+    ecrire_d_un_coup(&fichier, &texte);
+    texte
 }
 
 fn lire_nombre(chemin: impl AsRef<Path>) -> Option<u64> {
@@ -93,13 +161,49 @@ fn nom_propre(brut: &str) -> String {
     nom.strip_suffix(':').unwrap_or(nom).to_owned()
 }
 
-/// Nom du programme d'un processus : le premier mot de sa commande (son nom court pour le noyau).
-fn nom_du_processus(pid: u32) -> Option<String> {
-    let commande = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
-    match commande.split(|&o| o == 0).next().filter(|m| !m.is_empty()) {
-        Some(mot) => Some(nom_propre(&String::from_utf8_lossy(mot))),
-        None => lire(format!("/proc/{pid}/comm")).map(|n| nom_propre(&n)),
+/// Nom du programme d'un processus (son nom court pour le noyau s'il n'a pas de commande).
+fn nom_du_processus(pid: u32, lecteur: &mut Lecteur) -> Option<String> {
+    let nom = lecteur
+        .octets(format!("/proc/{pid}/cmdline"))
+        .and_then(|commande| nom_de_commande(&String::from_utf8_lossy(commande)));
+    nom.or_else(|| lecteur.texte(format!("/proc/{pid}/comm")).map(|n| nom_propre(n.trim())))
+}
+
+/// Nom lisible d'après une commande (mots séparés par des caractères nuls, comme dans /proc).
+fn nom_de_commande(commande: &str) -> Option<String> {
+    let mut mots: Vec<&str> = commande.split('\0').filter(|m| !m.is_empty()).collect();
+    if let [titre] = mots[..]
+        && titre.contains(' ')
+    {
+        // Programme qui a réécrit son titre (Electron, Firefox) : tout est dans le premier mot
+        mots = titre.split(' ').filter(|m| !m.is_empty()).collect();
     }
+    let (programme, arguments) = mots.split_first()?;
+    if *programme == "/proc/self/exe" {
+        return None; // relancé par lui-même (VS Code…) : son nom court pour le noyau est le bon
+    }
+    let programme = nom_propre(programme);
+    // Un interpréteur fait tourner un script : son nom ("opensnitch-ui" plutôt que "python3.13")
+    let interprete = ["python", "perl", "ruby", "node"].iter().any(|i| {
+        programme.strip_prefix(i).is_some_and(|version| version.chars().all(|c| c.is_ascii_digit() || c == '.'))
+    });
+    if interprete && let Some(script) = arguments.iter().find(|a| !a.starts_with('-')) {
+        return Some(nom_propre(script));
+    }
+    // Electron fait tourner une application : son dossier de données (~/.config/equibop-ptb),
+    // sinon le dossier où elle est installée (…/Equibop/resources/app.asar)
+    if programme == "electron" {
+        for a in arguments {
+            if let Some(appli) = a
+                .strip_prefix("--user-data-dir=")
+                .and_then(|d| d.split("/.config/").nth(1)?.split('/').next())
+                .or_else(|| a.strip_suffix("/resources/app.asar")?.rsplit('/').next())
+            {
+                return Some(appli.to_lowercase());
+            }
+        }
+    }
+    Some(programme)
 }
 
 fn pids() -> Vec<u32> {
@@ -111,34 +215,75 @@ fn pids() -> Vec<u32> {
         .collect()
 }
 
-/// Temps de calcul de chaque processus, en battements du noyau.
-fn temps_processeur() -> HashMap<u32, u64> {
-    let mut resultat = HashMap::new();
-    for pid in pids() {
-        let Some(stat) = lire(format!("/proc/{pid}/stat")) else { continue };
-        // Le nom (entre parenthèses) peut contenir des espaces : on repart après la dernière ")"
-        let Some(fin) = stat.rfind(')') else { continue };
-        let champs: Vec<u64> =
-            stat[fin + 1..].split_whitespace().skip(11).take(2).filter_map(|c| c.parse().ok()).collect();
-        if let [utilisateur, systeme] = champs[..] {
-            resultat.insert(pid, utilisateur + systeme);
-        }
-    }
-    resultat
+/// Une mesure du processeur depuis le démarrage, en battements du noyau : le total et le temps
+/// inactif (tous cœurs confondus), et le temps de calcul de chaque processus.
+#[derive(Debug, PartialEq)]
+struct Mesure {
+    total: u64,
+    inactif: u64,
+    par_pid: HashMap<u32, u64>,
 }
 
-/// (total, inactif) du processeur depuis le démarrage, en battements du noyau.
-fn stat_globale() -> (u64, u64) {
-    let texte = lire("/proc/stat").unwrap_or_default();
-    let champs: Vec<u64> = texte
-        .lines()
-        .next()
-        .unwrap_or("")
-        .split_whitespace()
-        .skip(1)
-        .filter_map(|c| c.parse().ok())
-        .collect();
-    (champs.iter().take(8).sum(), champs.get(3).copied().unwrap_or(0))
+impl Mesure {
+    fn prendre(lecteur: &mut Lecteur) -> Self {
+        let champs: Vec<u64> = lecteur
+            .texte("/proc/stat")
+            .and_then(|t| t.lines().next())
+            .unwrap_or("")
+            .split_ascii_whitespace()
+            .skip(1)
+            .filter_map(|c| c.parse().ok())
+            .collect();
+        let (total, inactif) = (champs.iter().take(8).sum(), champs.get(3).copied().unwrap_or(0));
+        let mut par_pid = HashMap::new();
+        for pid in pids() {
+            let Some(stat) = lecteur.octets(format!("/proc/{pid}/stat")) else { continue };
+            // Le nom (entre parenthèses) peut contenir des espaces, ou des octets qui ne sont pas
+            // du texte : on repart après la dernière ")", où il n'y a plus que des nombres
+            let Some(fin) = stat.iter().rposition(|&o| o == b')') else { continue };
+            let Ok(nombres) = std::str::from_utf8(&stat[fin + 1..]) else { continue };
+            let mut temps = nombres.split_ascii_whitespace().skip(11).filter_map(|c| c.parse::<u64>().ok());
+            if let (Some(utilisateur), Some(systeme)) = (temps.next(), temps.next()) {
+                par_pid.insert(pid, utilisateur + systeme);
+            }
+        }
+        Self { total, inactif, par_pid }
+    }
+
+    /// Forme écrite, gardée entre deux appels : "total inactif", puis "processus temps" par ligne.
+    fn ecrire(&self) -> String {
+        let mut texte = format!("{} {}\n", self.total, self.inactif);
+        for (pid, temps) in &self.par_pid {
+            let _ = writeln!(texte, "{pid} {temps}");
+        }
+        texte
+    }
+
+    fn lire(texte: &str) -> Option<Self> {
+        let mut lignes = texte.lines();
+        let (total, inactif) = lignes.next()?.split_once(' ')?;
+        let par_pid = lignes
+            .filter_map(|l| {
+                let (pid, temps) = l.split_once(' ')?;
+                Some((pid.parse().ok()?, temps.parse().ok()?))
+            })
+            .collect();
+        Some(Mesure { total: total.parse().ok()?, inactif: inactif.parse().ok()?, par_pid })
+    }
+}
+
+/// La mesure précédente, gardée en mémoire vive entre deux appels de la barre (toutes les 3 s) :
+/// l'activité est calculée sur tout l'intervalle écoulé, sans avoir à attendre.
+fn mesure_precedente() -> Option<Mesure> {
+    let fichier = dossier_session().join("panneaux-cpu");
+    if age(&fichier)? > Duration::from_secs(30) {
+        return None; // trop ancienne (la barre vient de démarrer) : sans intérêt
+    }
+    Mesure::lire(&fs::read_to_string(fichier).ok()?)
+}
+
+fn garder_mesure(mesure: &Mesure) {
+    ecrire_d_un_coup(&dossier_session().join("panneaux-cpu"), &mesure.ecrire());
 }
 
 /// Lignes "taille  nom  %" des plus gros. `elements` : nom -> Kio.
@@ -192,6 +337,25 @@ fn capteur_par_nom(nom: &str) -> Option<PathBuf> {
         .find(|h| lire(h.join("name")).as_deref() == Some(nom))
 }
 
+/// Mémoire vive par application, en Kio.
+fn ram_par_appli() -> HashMap<String, u64> {
+    let mut lecteur = Lecteur::new();
+    let mut par_nom: HashMap<String, u64> = HashMap::new();
+    for pid in pids() {
+        // statm : 2e champ = pages présentes en mémoire vive (4 Kio)
+        let pages: u64 = lecteur
+            .texte(format!("/proc/{pid}/statm"))
+            .and_then(|s| s.split_ascii_whitespace().nth(1)?.parse().ok())
+            .unwrap_or(0);
+        if pages > 0
+            && let Some(nom) = nom_du_processus(pid, &mut lecteur)
+        {
+            *par_nom.entry(nom).or_default() += pages * 4;
+        }
+    }
+    par_nom
+}
+
 /// Mémoire vidéo par application : chaque programme qui utilise la carte graphique décrit sa
 /// consommation dans /proc/<numéro>/fdinfo (seulement lisible pour tes propres programmes).
 fn vram_par_appli(carte: &Path) -> HashMap<String, u64> {
@@ -199,13 +363,22 @@ fn vram_par_appli(carte: &Path) -> HashMap<String, u64> {
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_default();
+    let mut lecteur = Lecteur::new();
     let mut par_nom: HashMap<String, u64> = HashMap::new();
     for pid in pids() {
-        let Ok(descripteurs) = fs::read_dir(format!("/proc/{pid}/fdinfo")) else { continue };
+        let Ok(descripteurs) = fs::read_dir(format!("/proc/{pid}/fd")) else { continue };
         let mut vus = HashSet::new(); // un même client peut apparaître sur plusieurs descripteurs
         let mut total = 0;
         for d in descripteurs.flatten() {
-            let Some(texte) = lire(d.path()) else { continue };
+            // Seulement les fichiers ouverts sur une carte graphique (/dev/dri/...) : lire le
+            // détail de tous les autres (des milliers, sur tout le système) coûterait pour rien.
+            if !fs::read_link(d.path()).is_ok_and(|cible| cible.starts_with("/dev/dri")) {
+                continue;
+            }
+            let Some(texte) = lecteur.texte(format!("/proc/{pid}/fdinfo/{}", d.file_name().to_string_lossy()))
+            else {
+                continue;
+            };
             let (mut pdev, mut client, mut vram) = (None, None, 0);
             for ligne in texte.lines() {
                 if let Some(v) = ligne.strip_prefix("drm-pdev:") {
@@ -224,7 +397,7 @@ fn vram_par_appli(carte: &Path) -> HashMap<String, u64> {
             }
         }
         if total > 0
-            && let Some(nom) = nom_du_processus(pid)
+            && let Some(nom) = nom_du_processus(pid, &mut lecteur)
         {
             *par_nom.entry(nom).or_default() += total;
         }
@@ -246,30 +419,33 @@ fn capteurs(mode: &str) {
 }
 
 fn capteur_cpu() {
-    // Deux mesures à 0,7 s d'intervalle : la seconde donne l'activité récente (la première est
-    // une moyenne depuis le démarrage, trompeuse).
-    let (avant_total, avant_inactif) = stat_globale();
-    let avant = temps_processeur();
-    sleep(Duration::from_millis(700));
-    let (apres_total, apres_inactif) = stat_globale();
-    let apres = temps_processeur();
+    // L'activité depuis la mesure précédente (la moyenne depuis le démarrage serait trompeuse).
+    // Premier appel : deux mesures à 0,3 s d'intervalle.
+    let mut lecteur = Lecteur::new();
+    let avant = mesure_precedente().unwrap_or_else(|| {
+        let mesure = Mesure::prendre(&mut lecteur);
+        sleep(Duration::from_millis(300));
+        mesure
+    });
+    let apres = Mesure::prendre(&mut lecteur);
+    garder_mesure(&apres);
 
-    let total = apres_total.saturating_sub(avant_total).max(1) as f64;
-    let inactif = apres_inactif.saturating_sub(avant_inactif) as f64;
+    let total = apres.total.saturating_sub(avant.total).max(1) as f64;
+    let inactif = apres.inactif.saturating_sub(avant.inactif) as f64;
     let usage = (100.0 - inactif * 100.0 / total + 0.5).clamp(0.0, 100.0) as i64;
 
-    // Part de chaque programme dans la puissance totale (tous cœurs confondus)
-    let coeurs = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
+    // Part de chaque programme dans la puissance totale (tous cœurs confondus) ; un programme
+    // apparu entre les deux mesures n'a pas encore de mesure de départ : il attend la suivante.
     let mut par_nom: HashMap<String, f64> = HashMap::new();
-    for (pid, fin) in &apres {
-        let battements = fin.saturating_sub(avant.get(pid).copied().unwrap_or(*fin)) as f64;
+    for (pid, fin) in &apres.par_pid {
+        let Some(debut) = avant.par_pid.get(pid) else { continue };
+        let battements = fin.saturating_sub(*debut) as f64;
         if battements > 0.0
-            && let Some(nom) = nom_du_processus(*pid)
+            && let Some(nom) = nom_du_processus(*pid, &mut lecteur)
         {
-            *par_nom.entry(nom).or_default() += battements / (BATTEMENTS * 0.7) * 100.0 / coeurs;
+            *par_nom.entry(nom).or_default() += battements * 100.0 / total;
         }
     }
-    par_nom.remove("panneaux"); // (soi-même)
     let mut liste: Vec<(String, f64)> = par_nom.into_iter().collect();
     liste.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     let mut applis = String::new();
@@ -279,7 +455,7 @@ fn capteur_cpu() {
     let applis =
         if applis.is_empty() { "  (rien de notable)".to_owned() } else { echappe(applis.trim_end()) };
     let bulle = format!("<b>Processeur : {usage} %</b>\n<tt>{applis}</tt>");
-    sortie(&format!("{ICONE_CPU}  {usage}%"), &bulle, json!(""));
+    sortie(&format!("{ICONE_CPU}  {usage}%"), &bulle, "");
 }
 
 fn capteur_ram() {
@@ -295,29 +471,17 @@ fn capteur_ram() {
     let total = kio("MemTotal:") * 1024;
     let utilise = total.saturating_sub(kio("MemAvailable:") * 1024);
     let pct = utilise * 100 / total.max(1);
-
-    let mut par_nom: HashMap<String, u64> = HashMap::new();
-    for pid in pids() {
-        // statm : 2e champ = pages présentes en mémoire vive (4 Kio)
-        let pages: u64 = lire(format!("/proc/{pid}/statm"))
-            .and_then(|s| s.split_whitespace().nth(1)?.parse().ok())
-            .unwrap_or(0);
-        if pages > 0
-            && let Some(nom) = nom_du_processus(pid)
-        {
-            *par_nom.entry(nom).or_default() += pages * 4;
-        }
-    }
-    let applis = tableau(par_nom, total / 1024);
+    // Totaux à chaque appel ; détail par application toutes les 15 s (il change lentement)
+    let applis = detail_garde("panneaux-ram", || tableau(ram_par_appli(), total / 1024));
 
     let (mut vu, mut vt, mut vram) = (0, 0, String::new());
     if let Some(carte) = carte_gpu() {
         vu = lire_nombre(carte.join("mem_info_vram_used")).unwrap_or(0);
         vt = lire_nombre(carte.join("mem_info_vram_total")).unwrap_or(0);
-        vram = tableau(vram_par_appli(&carte), vt / 1024);
+        vram = detail_garde("panneaux-vram", || tableau(vram_par_appli(&carte), vt / 1024));
     }
     if vram.is_empty() {
-        vram = "  (aucune application)".to_owned();
+        vram.push_str("  (aucune application)");
     }
     let bulle = format!(
         "<b>Mémoire : {} Go / {} Go</b>\n<tt>{applis}</tt>\n\n<b>Mémoire vidéo : {} Go / {} Go</b>\n<tt>{vram}</tt>",
@@ -326,33 +490,53 @@ fn capteur_ram() {
         go(vu),
         go(vt)
     );
-    sortie(&format!("{ICONE_RAM}  {pct}%"), &bulle, json!(""));
+    sortie(&format!("{ICONE_RAM}  {pct}%"), &bulle, "");
+}
+
+/// Texte d'une valeur mesurée, ou "?" si elle manque.
+fn ou_inconnu(valeur: Option<impl std::fmt::Display>) -> String {
+    valeur.map_or_else(|| "?".to_owned(), |v| v.to_string())
+}
+
+/// Ventilateurs de la carte graphique : vitesse, et part de leur puissance maximale.
+fn ventilateurs(hwmon: &Path) -> Option<String> {
+    let tours = lire_nombre(hwmon.join("fan1_input"))?;
+    Some(match lire_nombre(hwmon.join("pwm1")) {
+        Some(pwm) => format!("{tours} tr/min ({} %)", pwm * 100 / 255),
+        None => format!("{tours} tr/min"),
+    })
 }
 
 fn capteur_gpu() {
     let Some(carte) = carte_gpu() else {
-        sortie("", "", json!(""));
+        sortie("", "", "");
         return;
     };
     let usage = lire_nombre(carte.join("gpu_busy_percent")).unwrap_or(0);
     let vu = lire_nombre(carte.join("mem_info_vram_used")).unwrap_or(0);
     let vt = lire_nombre(carte.join("mem_info_vram_total")).unwrap_or(0);
-    let puissance = premier_hwmon(&carte)
-        .and_then(|h| lire_nombre(h.join("power1_average")).or_else(|| lire_nombre(h.join("power1_input"))))
-        .map_or("?".to_owned(), |p| (p / 1_000_000).to_string());
-    let frequence = lire(carte.join("pp_dpm_sclk"))
-        .and_then(|t| t.lines().find(|l| l.contains('*'))?.split_whitespace().nth(1).map(str::to_owned))
-        .unwrap_or_else(|| "?".to_owned());
+    let hwmon = premier_hwmon(&carte);
+    let watts = |fichier: &str| hwmon.as_ref().and_then(|h| lire_nombre(h.join(fichier))).map(|p| p / 1_000_000);
+    // Consommation, et la limite fixée (réglage "puissanceCarteGraphique" de games_drivers.nix)
+    let puissance = match (watts("power1_average").or_else(|| watts("power1_input")), watts("power1_cap")) {
+        (Some(p), Some(limite)) => format!("{p} W / {limite} W"),
+        (p, _) => format!("{} W", ou_inconnu(p)),
+    };
+    let ventilation = ou_inconnu(hwmon.as_deref().and_then(ventilateurs));
+    let frequence = ou_inconnu(
+        lire(carte.join("pp_dpm_sclk"))
+            .and_then(|t| t.lines().find(|l| l.contains('*'))?.split_whitespace().nth(1).map(str::to_owned)),
+    );
     let bulle = format!(
-        "<b>Carte graphique : {usage} %</b>\n<tt>Mémoire vidéo  {} Go / {} Go\nConsommation   {puissance} W\nFréquence      {frequence}</tt>",
+        "<b>Carte graphique : {usage} %</b>\n<tt>Mémoire vidéo  {} Go / {} Go\nConsommation   {puissance}\nVentilateurs   {ventilation}\nFréquence      {frequence}</tt>",
         go(vu),
         go(vt)
     );
-    sortie(&format!("{ICONE_GPU}  {usage}%"), &bulle, json!(""));
+    sortie(&format!("{ICONE_GPU}  {usage}%"), &bulle, "");
 }
 
 /// Couleur selon la température.
-fn niveau(valeur: i64) -> &'static str {
+const fn niveau(valeur: i64) -> &'static str {
     match valeur {
         v if v >= 90 => "critique",
         v if v >= 80 => "chaud",
@@ -361,33 +545,62 @@ fn niveau(valeur: i64) -> &'static str {
     }
 }
 
+/// Températures d'un capteur par étiquette ("edge", "junction", "mem"...), en °C.
+fn temperatures(hwmon: &Path) -> HashMap<String, i64> {
+    fs::read_dir(hwmon)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entree| {
+            let nom = entree.file_name().into_string().ok()?;
+            let numero = nom.strip_prefix("temp")?.strip_suffix("_label")?;
+            let valeur = lire_nombre(hwmon.join(format!("temp{numero}_input")))?;
+            Some((lire(entree.path())?, i64::try_from(valeur / 1000).ok()?))
+        })
+        .collect()
+}
+
+/// La carte graphique approche de sa coupure d'urgence (115 °C au point le plus chaud) :
+/// notification, au plus une toutes les 2 minutes. Seuil : réglage "alerteChaleur".
+fn alerter_chaleur(point: i64) {
+    let Some(seuil) = THEME.alerte_chaleur else { return };
+    let temoin = dossier_session().join("panneaux-alerte-chaleur");
+    if point < seuil || age(&temoin).is_some_and(|age| age < Duration::from_secs(120)) {
+        return;
+    }
+    let _ = fs::write(&temoin, "");
+    let texte = format!(
+        "Point le plus chaud : {point} °C (arrêt d'urgence à 115 °C). Baisse les réglages du jeu, \
+         ou laisse-la refroidir."
+    );
+    lancer(&["notify-send", "-u", "critical", "-a", "temperature", "Carte graphique très chaude", &texte]);
+}
+
 fn capteur_temp() {
     // Une seule température dans la barre : celle de la carte graphique (couleur selon la
-    // chaleur). Survol : le détail de la carte graphique, et le processeur.
+    // chaleur, rouge si le point le plus chaud atteint le seuil d'alerte). Survol : le détail
+    // de la carte graphique, ses ventilateurs, et le processeur.
     let hwmon = carte_gpu().and_then(|c| premier_hwmon(&c));
-    let par_etiquette = |etiquette: &str| -> Option<i64> {
-        let hwmon = hwmon.as_ref()?;
-        fs::read_dir(hwmon).ok()?.flatten().find_map(|entree| {
-            let nom = entree.file_name().to_string_lossy().into_owned();
-            if nom.starts_with("temp") && nom.ends_with("_label") && lire(entree.path())? == etiquette {
-                Some(lire_nombre(hwmon.join(nom.replace("_label", "_input")))? as i64 / 1000)
-            } else {
-                None
-            }
-        })
-    };
-    let (bord, point, mem) = (par_etiquette("edge"), par_etiquette("junction"), par_etiquette("mem"));
-    let texte = |t: Option<i64>| t.map_or("?".to_owned(), |t| t.to_string());
-    let cpu = texte(
-        capteur_par_nom("k10temp").and_then(|h| lire_nombre(h.join("temp1_input"))).map(|t| t as i64 / 1000),
-    );
+    let temperatures = hwmon.as_deref().map(temperatures).unwrap_or_default();
+    let (bord, point, mem) =
+        (temperatures.get("edge").copied(), temperatures.get("junction").copied(), temperatures.get("mem").copied());
+    if let Some(point) = point {
+        alerter_chaleur(point);
+    }
+    let cpu = capteur_par_nom("k10temp")
+        .and_then(|h| lire_nombre(h.join("temp1_input")))
+        .and_then(|t| i64::try_from(t / 1000).ok());
     let bulle = format!(
-        "<b>Carte graphique</b>\n<tt>Température           {} °C\nPoint le plus chaud   {} °C\nMémoire vidéo         {} °C</tt>\n\n<b>Processeur</b>\n<tt>Température           {cpu} °C</tt>",
-        texte(bord),
-        texte(point),
-        texte(mem)
+        "<b>Carte graphique</b>\n<tt>Température           {} °C\nPoint le plus chaud   {} °C\nMémoire vidéo         {} °C\nVentilateurs          {}</tt>\n\n<b>Processeur</b>\n<tt>Température           {} °C</tt>",
+        ou_inconnu(bord),
+        ou_inconnu(point),
+        ou_inconnu(mem),
+        ou_inconnu(hwmon.as_deref().and_then(ventilateurs)),
+        ou_inconnu(cpu)
     );
-    sortie(&format!("{ICONE_TEMP}  {}°C", texte(bord)), &bulle, json!(niveau(bord.unwrap_or(0))));
+    let alerte = matches!((point, THEME.alerte_chaleur), (Some(p), Some(seuil)) if p >= seuil);
+    let classe = if alerte { "critique" } else { niveau(bord.unwrap_or(0)) };
+    sortie(&format!("{ICONE_TEMP}  {}°C", ou_inconnu(bord)), &bulle, classe);
 }
 
 // =============================================================================
@@ -461,7 +674,7 @@ fn notifs() {
     } else {
         (CLOCHE, json!([]))
     };
-    sortie(icone, &infobulle, classes);
+    println!("{}", json!({ "text": icone, "tooltip": infobulle, "class": classes }));
 }
 
 // =============================================================================
@@ -487,11 +700,11 @@ const MOIS: [&str; 12] = [
 /// programmé (sablier + heure).
 fn etat() {
     let (mut texte, mut bulle) = (String::new(), String::new());
-    if crate::session::drapeau().exists() {
+    if drapeau_veille().exists() {
         texte.push_str(ICONE_CAFE);
         bulle.push_str("Veille automatique de l'ordinateur désactivée");
     }
-    if let Some(prevu) = crate::session::arret_prevu() {
+    if let Some(prevu) = arret_prevu() {
         if !texte.is_empty() {
             texte.push_str("  ");
             bulle.push('\n');
@@ -511,7 +724,7 @@ fn etat() {
 
 /// Témoin des fenêtres réduites (invisible s'il n'y en a aucune).
 fn reduites_barre() {
-    let fenetres = crate::reduites::fenetres_reduites();
+    let fenetres = fenetres_reduites();
     if fenetres.is_empty() {
         println!("{}", json!({ "text": "" }));
         return;
@@ -560,7 +773,7 @@ fn volume(action: &str) {
 /// Appelé par hypridle après "ordiEnVeilleApres" minutes d'inactivité. Pas de veille tant que
 /// la veille auto est désactivée, ni pendant que la boucle de nuit de l'IA travaille.
 fn veille_auto() {
-    if crate::session::drapeau().exists()
+    if drapeau_veille().exists()
         || executer(&["systemctl", "is-active", "--quiet", "ia-nuit.service"]).0
     {
         return;
@@ -576,7 +789,7 @@ fn veille_auto() {
 /// L'aperçu propose Copier, Enregistrer, Enregistrer sous…, Texte (OCR) ou Annuler.
 /// L'image attend en mémoire vive : copiée ou annulée, elle ne laisse aucune trace.
 fn capture(ecran_entier: bool) {
-    let ecran = crate::outils::hyprland("monitors")
+    let ecran = hyprland("monitors")
         .as_array()
         .and_then(|m| {
             m.iter().find(|m| m["focused"] == true).and_then(|m| m["name"].as_str().map(str::to_owned))
@@ -593,15 +806,14 @@ fn capture(ecran_entier: bool) {
     if !photo.arg(&fichier).status().is_ok_and(|s| s.success()) {
         return;
     }
-    if let Ok(moi) = std::env::current_exe() {
-        let mut suite = Command::new(moi);
-        if ecran_entier {
-            suite.args(["apercu", &fichier]);
-        } else {
-            suite.args(["selection", &fichier, &ecran]);
-        }
-        let _ = suite.exec();
+    // La suite s'affiche : c'est le programme des panneaux (avec GTK) qui prend le relais
+    let mut suite = programme_panneaux();
+    if ecran_entier {
+        suite.args(["apercu", &fichier]);
+    } else {
+        suite.args(["selection", &fichier, &ecran]);
     }
+    let _ = suite.exec();
 }
 
 /// Lanceur d'applications (Rofi). Relancer la commande le referme ; un clic n'importe où
@@ -611,7 +823,7 @@ fn lanceur() {
         lancer(&["pkill", "-x", "rofi"]);
         return;
     }
-    let attrape = std::env::current_exe().ok().and_then(|moi| Command::new(moi).arg("attrape").spawn().ok());
+    let attrape = programme_panneaux().arg("attrape").spawn().ok();
     let _ = Command::new("rofi").args(["-show", "drun"]).status();
     if let Some(mut attrape) = attrape {
         let _ = attrape.kill();
@@ -636,6 +848,43 @@ mod essais {
         assert_eq!(niveau(70), "tiede");
         assert_eq!(niveau(85), "chaud");
         assert_eq!(niveau(95), "critique");
+    }
+
+    #[test]
+    fn noms_des_commandes() {
+        let nom = |c: &str| nom_de_commande(c).unwrap_or_default();
+        assert_eq!(nom("/nix/store/x-firefox/lib/firefox/firefox\0-contentproc\0"), "firefox");
+        // titre réécrit, avec des espaces et des "/" dans les arguments
+        assert_eq!(nom("/nix/store/x/libexec/electron/electron --type=renderer --user-data-dir=/home/a/.config/equibop-ptb/sessionData --x=/a/b"), "equibop-ptb");
+        assert_eq!(nom("/nix/store/x/electron\0--flag\0/nix/store/y/opt/Equibop/resources/app.asar\0"), "equibop");
+        assert_eq!(nom("/nix/store/x/bin/python3.13\0/nix/store/y/bin/.opensnitch-ui-wrapped\0"), "opensnitch-ui");
+        assert_eq!(nom("python3\0-m\0http.server\0"), "http.server");
+        assert_eq!(nom("/run/current-system/sw/bin/bash\0-c\0source x\0"), "bash");
+        assert_eq!(nom_de_commande(""), None);
+        assert_eq!(nom_de_commande("/proc/self/exe\0--type=utility\0"), None); // nom du noyau à la place
+    }
+
+    #[test]
+    fn lecteur_petits_et_grands_fichiers() {
+        let dossier = std::env::temp_dir();
+        let (petit, grand) = (dossier.join("lecteur-petit"), dossier.join("lecteur-grand"));
+        fs::write(&petit, "1 2 3\n").unwrap();
+        fs::write(&grand, "abcdefghij".repeat(4000)).unwrap(); // 40 000 octets : plus que le tampon
+        let mut lecteur = Lecteur::new();
+        assert_eq!(lecteur.texte(&petit), Some("1 2 3\n"));
+        assert_eq!(lecteur.texte(&grand).map(str::len), Some(40_000));
+        assert_eq!(lecteur.texte(&petit), Some("1 2 3\n")); // tampon réutilisé (et agrandi)
+        assert_eq!(lecteur.octets("/n/existe/pas"), None);
+        assert!(lecteur.texte("/proc/self/stat").is_some_and(|s| s.contains(')')));
+        let _ = (fs::remove_file(petit), fs::remove_file(grand));
+    }
+
+    #[test]
+    fn mesure_gardee_puis_relue() {
+        let mesure = Mesure { total: 123_456, inactif: 100_000, par_pid: HashMap::from([(1, 50), (4242, 7)]) };
+        assert_eq!(Mesure::lire(&mesure.ecrire()), Some(mesure));
+        assert_eq!(Mesure::lire(""), None);
+        assert_eq!(Mesure::lire("abc"), None);
     }
 
     #[test]

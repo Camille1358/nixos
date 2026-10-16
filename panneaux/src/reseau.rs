@@ -5,6 +5,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use gtk::glib;
@@ -92,24 +93,26 @@ fn reseaux_wifi() -> Vec<Wifi> {
     reseaux
 }
 
+// Réponses de bluetoothctl (expressions préparées une seule fois)
+static APPAREIL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^Device ([0-9A-F:]{17}) (.+)$").unwrap());
+static SANS_NOM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([0-9A-F]{2}-){5}[0-9A-F]{2}$").unwrap());
+static GENRE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Icon: (\S+)").unwrap());
+
 /// [(adresse, nom)] des appareils Bluetooth ("Paired" = associés, "Connected" = connectés).
 fn appareils_bluetooth(filtre: Option<&str>) -> Vec<(String, String)> {
     let mut commande = vec!["bluetoothctl", "devices"];
     commande.extend(filtre);
     let (_, texte) = executer(&commande);
-    let appareil = Regex::new(r"(?m)^Device ([0-9A-F:]{17}) (.+)$").unwrap();
-    let sans_nom = Regex::new(r"^([0-9A-F]{2}-){5}[0-9A-F]{2}$").unwrap();
-    appareil
+    APPAREIL
         .captures_iter(&texte)
-        .filter(|m| !sans_nom.is_match(&m[2]))
+        .filter(|m| !SANS_NOM.is_match(&m[2]))
         .map(|m| (m[1].to_owned(), m[2].to_owned()))
         .collect()
 }
 
 fn icone_bluetooth(adresse: &str) -> &'static str {
     let (_, texte) = executer(&["bluetoothctl", "info", adresse]);
-    let genre = Regex::new(r"Icon: (\S+)").unwrap();
-    match genre.captures(&texte).as_ref().map(|m| m.get(1).unwrap().as_str()) {
+    match GENRE.captures(&texte).as_ref().map(|m| m.get(1).unwrap().as_str()) {
         Some("audio-headset" | "audio-headphones") => icone::CASQUE,
         Some("audio-card") => icone::SON,
         Some("input-keyboard") => icone::CLAVIER,
@@ -258,7 +261,6 @@ impl Reseau {
     /// Une connexion : clic = s'y connecter ; "Déconnecter" à droite si elle est active.
     #[allow(clippy::too_many_arguments)]
     fn ligne(
-        &self,
         texte: &str,
         icone: &str,
         active: bool,
@@ -304,7 +306,7 @@ impl Reseau {
             let (nom, uuid, carte) = (p[0].clone(), p[1].clone(), p[3].clone());
             let attente = self.en_cours.borrow().contains(&format!("eth:{uuid}"));
             let (r1, r2, u, c) = (Rc::clone(self), Rc::clone(self), uuid.clone(), carte.clone());
-            self.racine.append(&self.ligne(
+            self.racine.append(&Self::ligne(
                 &nom,
                 icone::ETHERNET,
                 !carte.is_empty(),
@@ -344,13 +346,14 @@ impl Reseau {
             let nom = reseau.nom.clone();
             let mut detail = format!("{} %", reseau.signal);
             if reseau.securise {
-                detail.push_str(&format!("  {}", icone::CADENAS));
+                detail.push_str("  ");
+                detail.push_str(icone::CADENAS);
             }
             let attente = self.en_cours.borrow().contains(&format!("wifi:{nom}"));
             let (r1, r2, n, e, c) =
                 (Rc::clone(self), Rc::clone(self), nom.clone(), Rc::clone(&enregistres), carte.to_owned());
             let securise = reseau.securise;
-            self.racine.append(&self.ligne(
+            self.racine.append(&Self::ligne(
                 &nom,
                 icone::WIFI,
                 reseau.actif,
@@ -390,7 +393,7 @@ impl Reseau {
         for (adresse, nom) in &associes {
             let attente = self.en_cours.borrow().contains(&format!("bt:{adresse}"));
             let (r1, r2, a1, a2) = (Rc::clone(self), Rc::clone(self), adresse.clone(), adresse.clone());
-            self.racine.append(&self.ligne(
+            self.racine.append(&Self::ligne(
                 nom,
                 icone_bluetooth(adresse),
                 connectes.contains(adresse),

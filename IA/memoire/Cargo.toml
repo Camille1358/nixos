@@ -10,7 +10,19 @@ publish = false
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
 
+# Vérifications de clippy en plus des habituelles (rust-analyzer les montre aussi dans VS Code) :
+# celles qui signalent du travail fait pour rien.
+[lints.clippy]
+or_fun_call = "warn"            # valeur de secours calculée même quand elle ne sert pas
+redundant_clone = "warn"        # copie inutile
+needless_pass_by_value = "warn" # donnée cédée alors qu'un prêt suffit
+format_push_string = "warn"     # texte intermédiaire fabriqué pour rien
+assigning_clones = "warn"       # nouvelle allocation au lieu de réutiliser l'ancienne
+unused_self = "warn"            # méthode qui n'utilise pas son objet
+needless_collect = "warn"       # liste construite pour être parcourue une seule fois
+
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
+panic = "abort" # pas de remontée d'erreur à préparer : programme plus petit

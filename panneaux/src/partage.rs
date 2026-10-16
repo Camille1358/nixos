@@ -12,7 +12,6 @@
 //!   panneaux partage [--allow-token]
 
 use std::cell::Cell;
-use std::path::Path;
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -20,10 +19,7 @@ use gtk::{gio, glib};
 use serde_json::Value;
 
 use crate::App;
-use crate::outils::{
-    boite, bouton, bouton_icone, couper, dossier_session, en_fond, etiquette, etiquette_centree,
-    hyprland, icone, icone_appli, image_ajustee, marges, miniature_grim,
-};
+use crate::outils::{boite, bouton, bouton_icone, carte_fenetre, en_fond, etiquette, hyprland, icone, poser_miniature};
 
 const LARGEUR: i32 = 240; // taille d'une miniature, en points
 const HAUTEUR: i32 = 150;
@@ -99,8 +95,8 @@ pub fn creer(app: &App) -> gtk::Box {
     for e in &ecrans {
         let nom = e["name"].as_str().unwrap_or("?").to_owned();
         let texte = format!("{nom}  ·  {} × {}", e["width"], e["height"]);
-        let (carte, cadre) = carte(&texte, None);
-        miniature(&cadre, &["-o", &nom], &format!("ecran-{nom}"));
+        let (carte, cadre) = carte(&texte, "");
+        poser_miniature(&cadre, &["-o", &nom], (LARGEUR, HAUTEUR), || true);
         let (p2, choix) = (Rc::clone(&p), format!("screen:{nom}"));
         cliquable(&carte, move || p2.choisir(&choix));
         rangee.append(&carte);
@@ -118,14 +114,14 @@ pub fn creer(app: &App) -> gtk::Box {
         grille.set_row_spacing(12);
         for (i, f) in fenetres.iter().enumerate() {
             let texte = if f.titre.is_empty() { f.classe.clone() } else { f.titre.clone() };
-            let (carte, cadre) = carte(&texte, Some(&f.classe));
+            let (carte, cadre) = carte(&texte, &f.classe);
             // Miniature : la fenêtre de Hyprland qui correspond (même adresse)
             if let Some(stable) =
                 clients.iter().find(|c| c["address"].as_str() == Some(f.adresse.as_str())).and_then(|c| {
                     c["stableId"].as_str().map(str::to_owned).or_else(|| Some(c["stableId"].to_string()))
                 })
             {
-                miniature(&cadre, &["-T", &stable], &format!("fenetre-{stable}"));
+                poser_miniature(&cadre, &["-T", &stable], (LARGEUR, HAUTEUR), || true);
             }
             let (p2, choix) = (Rc::clone(&p), format!("window:{}", f.numero));
             cliquable(&carte, move || p2.choisir(&choix));
@@ -169,29 +165,10 @@ fn texte_souvenir(actif: bool) -> String {
     format!("{}  Se souvenir de ce choix", if actif { icone::COCHE } else { "  " })
 }
 
-/// Une carte : la miniature (l'icône de l'application en attendant), puis le texte.
-fn carte(texte: &str, classe: Option<&str>) -> (gtk::Box, gtk::CenterBox) {
-    let zone = boite(true, 8);
-    marges(&zone, 10);
-    let cadre = gtk::CenterBox::new();
-    cadre.set_size_request(LARGEUR, HAUTEUR);
-    cadre.add_css_class("miniature");
-    match classe.and_then(|c| icone_appli(c, 56)) {
-        Some(image) => cadre.set_center_widget(Some(&image)),
-        None => cadre.set_center_widget(Some(&etiquette_centree(icone::FENETRE, &["grosse-icone"]))),
-    }
-    zone.append(&cadre);
-    let titre = boite(false, 6);
-    if let Some(petite) = classe.and_then(|c| icone_appli(c, 18)) {
-        titre.append(&petite);
-    }
-    let e = etiquette(texte, &[]);
-    couper(&e, 26);
-    e.set_hexpand(true);
-    titre.append(&e);
-    zone.append(&titre);
-    zone.add_css_class("carte");
-    // Survol : la carte s'éclaire (comme la carte choisie de l'Alt+Tab)
+/// Une carte (écran ou fenêtre) : la miniature, l'icône et le texte ; elle s'éclaire au
+/// survol, comme la carte choisie de l'Alt+Tab.
+fn carte(texte: &str, classe: &str) -> (gtk::Box, gtk::CenterBox) {
+    let (zone, cadre) = carte_fenetre(texte, classe, (LARGEUR, HAUTEUR), 56);
     let survol = gtk::EventControllerMotion::new();
     let z = zone.downgrade();
     survol.connect_enter(move |_, _, _| {
@@ -216,25 +193,6 @@ fn cliquable(carte: &gtk::Box, action: impl Fn() + 'static) {
     carte.add_controller(clic);
 }
 
-/// Capture réduite (écran : -o NOM ; fenêtre : -T IDENTIFIANT), sans figer l'affichage.
-fn miniature(cadre: &gtk::CenterBox, cible: &[&str], nom: &str) {
-    let chemin = dossier_session().join(format!("partage-{nom}-{}.jpg", std::process::id()));
-    let c = chemin.clone();
-    let cible: Vec<String> = cible.iter().map(|s| (*s).to_owned()).collect();
-    let cadre = cadre.clone();
-    en_fond(
-        move || {
-            let cible: Vec<&str> = cible.iter().map(String::as_str).collect();
-            miniature_grim(&cible, &c.to_string_lossy())
-        },
-        move |reussi| {
-            if reussi && let Some((image, _, _)) = image_ajustee(&chemin, LARGEUR, HAUTEUR, true) {
-                cadre.set_center_widget(Some(&image));
-            }
-            let _ = std::fs::remove_file(&chemin);
-        },
-    );
-}
 
 /// Zone de l'écran : le sélecteur disparaît, on trace la zone (slurp), puis la réponse est
 /// donnée en coordonnées de l'écran concerné.
