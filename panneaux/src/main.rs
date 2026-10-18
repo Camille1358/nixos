@@ -12,10 +12,8 @@
 
 mod alttab;
 mod attrape;
-mod barre;
 mod calendrier;
 mod capture;
-mod defilement;
 mod notifications;
 mod outils;
 mod partage;
@@ -24,6 +22,7 @@ mod reseau;
 mod selection;
 mod session;
 mod son;
+#[allow(dead_code)] // certains réglages ne servent qu'à la barre (panneaux-barre)
 mod style;
 mod systeme;
 
@@ -300,12 +299,8 @@ fn nouvel_etat(app: &gio::Application) -> App {
 }
 
 fn main() -> glib::ExitCode {
+    // (Les modules de la barre et les petites commandes sont dans "panneaux-barre", sans GTK.)
     let arguments: Vec<String> = std::env::args().collect();
-    // Modules de la barre et petites commandes (barre.rs). La barre appelle plutôt
-    // "panneaux-barre", le même code sans GTK, qui démarre bien plus vite (barre_seule.rs).
-    if let Some(code) = barre::commande(&arguments) {
-        return glib::ExitCode::from(code as u8);
-    }
     match arguments.get(1).map(String::as_str) {
         Some("attrape") => return attrape::lancer(), // indépendant des panneaux : plusieurs peuvent coexister
         // capture d'écran : programme à part, dessiné par la carte graphique (selection.rs)

@@ -135,12 +135,6 @@ pub fn executer_delai(commande: &[&str], delai: u64) -> (bool, String) {
     }
 }
 
-/// Le programme "panneaux" (les panneaux, avec GTK), rangé à côté de celui-ci.
-pub fn programme_panneaux() -> Command {
-    let voisin = std::env::current_exe().ok().and_then(|moi| Some(moi.parent()?.join("panneaux")));
-    Command::new(voisin.filter(|p| p.is_file()).unwrap_or_else(|| PathBuf::from("panneaux")))
-}
-
 /// Miniature d'un écran ou d'une fenêtre (cible : "-o ÉCRAN" ou "-T FENÊTRE") en JPEG réduit.
 /// Certaines fenêtres (Steam, jeux XWayland en plein écran) ne livrent jamais d'image : grim
 /// attendrait alors sans fin. "timeout -s KILL" l'arrête au bout de 2 s, même si le panneau
@@ -161,9 +155,25 @@ pub fn notifier(titre: &str, texte: &str, urgent: bool) {
 }
 
 /// Demande à la barre (Waybar) de mettre à jour un module (8 état, 9 réduites,
-/// 10 notifications).
+/// 10 notifications), par un signal envoyé directement. Waybar tourne comme service : ses
+/// numéros de processus se lisent dans un seul fichier. (pkill, lui, lisait cinq fichiers pour
+/// chacun des ~600 programmes du système : 47 ms et 12 000 appels au système à chaque fois.)
 pub fn rafraichir_barre(signal: u8) {
-    lancer(&["pkill", &format!("-RTMIN+{signal}"), "waybar"]);
+    // SAFETY : getuid ne fait que lire le numéro de l'utilisateur.
+    let uid = unsafe { libc::getuid() };
+    let groupe = format!("/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service/app.slice/waybar.service");
+    let Ok(processus) = std::fs::read_to_string(format!("{groupe}/cgroup.procs")) else {
+        lancer(&["pkill", &format!("-RTMIN+{signal}"), "waybar"]); // Waybar lancé autrement
+        return;
+    };
+    for pid in processus.lines().filter_map(|l| l.trim().parse::<i32>().ok()) {
+        // Seulement Waybar lui-même : le groupe contient aussi les commandes de la barre en cours
+        let nom = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+        if nom.trim().trim_start_matches('.').starts_with("waybar") {
+            // SAFETY : simple envoi d'un signal (celui qu'attend le module) au processus de Waybar.
+            unsafe { libc::kill(pid, libc::SIGRTMIN() + i32::from(signal)) };
+        }
+    }
 }
 
 /// Chemin complet d'un programme d'après le PATH (comme la commande "which").

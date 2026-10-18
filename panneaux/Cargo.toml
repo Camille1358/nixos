@@ -15,7 +15,6 @@ path = "src/main.rs"
 [[bin]]
 name = "panneaux-barre"
 path = "src/barre_seule.rs"
-test = false # même code que "panneaux", déjà testé avec lui
 
 [dependencies]
 gtk = { package = "gtk4", version = "0.11", features = ["v4_14"] }
@@ -27,6 +26,7 @@ wayland-client = "0.31" # défilement automatique : souris virtuelle (barre.rs)
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 wayland-protocols = { version = "0.32", features = ["client"] } # taille exacte de l'icône du défilement
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+libc = "0.2" # envoyer un signal à la barre sans lancer pkill (systeme.rs)
 
 # Vérifications de clippy en plus des habituelles (rust-analyzer les montre aussi dans VS Code) :
 # celles qui signalent du travail fait pour rien.

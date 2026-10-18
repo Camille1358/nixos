@@ -677,6 +677,7 @@ dependencies = [
  "gio-unix",
  "gtk4",
  "gtk4-layer-shell",
+ "libc",
  "regex",
  "serde_json",
  "wayland-client",

@@ -201,7 +201,7 @@ let
   # Modules de la barre et petites commandes du bureau (panneaux/src/barre.rs) : le programme
   # "panneaux-barre", le même code sans GTK — il démarre en quelques millisecondes (la barre en
   # lance un toutes les quelques secondes), sans aucun script.
-  #   capteurs cpu|gpu|ram|temp  mesures de la barre (infobulles : applications les plus gourmandes)
+  #   capteurs cpu|gpu|ram|temp  mesures de la barre, une ligne toutes les 3 s (reste ouvert)
   #   notifs                     cloche des notifications (survol : les dernières, par application)
   #   etat                       témoin "veille auto désactivée" (café) / "arrêt programmé" (sablier)
   #   reduites-barre             témoin des fenêtres réduites
@@ -210,6 +210,7 @@ let
   #   capture-ecran [ecran]      capture façon KDE : zone (ou écran entier), puis aperçu
   #   lanceur                    Rofi ; relancer le referme, un clic ailleurs aussi (attrape-clic)
   #   defilement                 défilement automatique (clic molette)
+  #   rafraichir 8|9|10          mettre à jour un module de la barre (état, réduites, cloche)
   barre = nom: "${panneaux}/bin/panneaux-barre ${nom}";
   capteurs = barre "capteurs";
   notifsBarre = barre "notifs";
@@ -371,19 +372,19 @@ in
       "custom/cpu" = {
         exec = "${capteurs} cpu";
         return-type = "json";
-        interval = 3;
+        restart-interval = 5; # le capteur reste ouvert (une ligne toutes les 3 s) ; relancé s'il s'arrête
         on-click = "${pkgs.kdePackages.plasma-systemmonitor}/bin/plasma-systemmonitor";
       };
       "custom/gpu" = {
         exec = "${capteurs} gpu";
         return-type = "json";
-        interval = 3;
+        restart-interval = 5; # le capteur reste ouvert (une ligne toutes les 3 s) ; relancé s'il s'arrête
         on-click = "${pkgs.kdePackages.plasma-systemmonitor}/bin/plasma-systemmonitor";
       };
       "custom/ram" = {
         exec = "${capteurs} ram";
         return-type = "json";
-        interval = 3;
+        restart-interval = 5; # le capteur reste ouvert (une ligne toutes les 3 s) ; relancé s'il s'arrête
         on-click = "${pkgs.kdePackages.plasma-systemmonitor}/bin/plasma-systemmonitor";
       };
 
@@ -392,7 +393,7 @@ in
       "custom/temp" = {
         exec = "${capteurs} temp";
         return-type = "json";
-        interval = 3;
+        restart-interval = 5; # le capteur reste ouvert (une ligne toutes les 3 s) ; relancé s'il s'arrête
       };
 
       # Clic = panneau réseau et Bluetooth (Wi-Fi, mode avion, filaire, appareils)
@@ -1012,7 +1013,7 @@ in
         if w.workspace and w.workspace.name == "special:reduites" then
           -- fenêtre réduite : la ramener sur l'espace de travail affiché
           hl.dispatch(hl.dsp.window.move({ window = cible, workspace = hl.get_active_workspace().id }))
-          hl.exec_cmd("pkill -RTMIN+9 waybar")
+          hl.exec_cmd("${barre "rafraichir 9"}") -- (sans pkill : il parcourt tous les programmes)
         end
         hl.dispatch(hl.dsp.focus({ window = cible }))
         AltTab.garderLaMain(w.address)

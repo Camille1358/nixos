@@ -4,7 +4,8 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::Path;
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
 
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
@@ -175,21 +176,77 @@ pub fn icone_appli(nom: &str, taille: i32) -> Option<gtk::Image> {
 }
 
 thread_local! {
-    /// Icônes déjà cherchées (nom -> icône) : chaque application n'est cherchée qu'une fois,
-    /// même avec plusieurs fenêtres, ou une grande et une petite image.
-    static ICONES: RefCell<HashMap<String, Option<gio::Icon>>> = RefCell::new(HashMap::new());
+    /// Icônes déjà cherchées : nom -> icône, en texte (nom d'icône du thème, ou chemin d'une
+    /// image ; vide = aucune). Chargées au premier besoin depuis le fichier partagé.
+    static ICONES: RefCell<Option<HashMap<String, String>>> = const { RefCell::new(None) };
+}
+
+/// Les recherches d'icônes sont gardées d'une ouverture de panneau à l'autre, en mémoire vive :
+/// trouver une application d'après son nom ("notify-send", "Spotify"...) fait lire et indexer
+/// tous les fichiers .desktop du système, plus de 100 ms à chaque ouverture. La première ligne
+/// du fichier décrit les applications installées : si elles changent, il est oublié.
+fn fichier_icones() -> PathBuf {
+    dossier_session().join("panneaux-icones")
+}
+
+/// Empreinte des dossiers d'applications : leur vrai emplacement (qui change à chaque nrs) et
+/// leur date (qui change quand on y ajoute une application à la main).
+fn empreinte_applications() -> String {
+    let mut dossiers: Vec<PathBuf> =
+        std::env::var_os("XDG_DATA_DIRS").map(|d| std::env::split_paths(&d).collect()).unwrap_or_default();
+    dossiers.push(glib::user_data_dir());
+    let mut empreinte = String::from("applications:");
+    for dossier in dossiers {
+        if let Ok(vrai) = std::fs::canonicalize(dossier.join("applications")) {
+            let date = std::fs::metadata(&vrai)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_secs());
+            let _ = write!(empreinte, "{}@{date};", vrai.display());
+        }
+    }
+    empreinte
+}
+
+fn icones_gardees() -> HashMap<String, String> {
+    let texte = std::fs::read_to_string(fichier_icones()).unwrap_or_default();
+    let mut lignes = texte.lines();
+    if lignes.next() != Some(empreinte_applications().as_str()) {
+        return HashMap::new(); // applications changées depuis (ou premier panneau ouvert)
+    }
+    lignes.filter_map(|l| l.split_once('\t')).map(|(nom, icone)| (nom.to_owned(), icone.to_owned())).collect()
+}
+
+fn garder_icones(icones: &HashMap<String, String>) {
+    let mut texte = empreinte_applications();
+    for (nom, icone) in icones {
+        let _ = write!(texte, "\n{nom}\t{icone}");
+    }
+    let fichier = fichier_icones();
+    let provisoire = fichier.with_extension("tmp");
+    if std::fs::write(&provisoire, texte).is_ok() {
+        let _ = std::fs::rename(provisoire, fichier); // remplacé d'un coup : jamais lu à moitié
+    }
 }
 
 fn icone_de(nom: &str) -> Option<gio::Icon> {
-    if nom.is_empty() {
-        return None;
+    // (un nom sur plusieurs lignes ne peut pas être gardé dans le fichier : cherché à chaque fois)
+    if nom.is_empty() || nom.contains(['\t', '\n']) {
+        return chercher_icone(nom);
     }
-    if let Some(connue) = ICONES.with_borrow(|icones| icones.get(nom).cloned()) {
-        return connue;
-    }
-    let trouvee = chercher_icone(nom);
-    ICONES.with_borrow_mut(|icones| icones.insert(nom.to_owned(), trouvee.clone()));
-    trouvee
+    let connue = ICONES.with_borrow_mut(|icones| icones.get_or_insert_with(icones_gardees).get(nom).cloned());
+    let texte = connue.unwrap_or_else(|| {
+        let trouvee =
+            chercher_icone(nom).and_then(|i| gio::prelude::IconExt::to_string(&i)).map(String::from).unwrap_or_default();
+        ICONES.with_borrow_mut(|icones| {
+            let icones = icones.get_or_insert_with(HashMap::new);
+            icones.insert(nom.to_owned(), trouvee.clone());
+            garder_icones(icones);
+        });
+        trouvee
+    });
+    (!texte.is_empty()).then(|| gio::Icon::for_string(&texte).ok()).flatten()
 }
 
 /// Le fichier .desktop de l'application (par son nom exact, puis en minuscules, puis la
@@ -220,10 +277,19 @@ fn chercher_icone(nom: &str) -> Option<gio::Icon> {
         }
     }
     icones.push(gio::ThemedIcon::new(&minuscule).upcast());
-    icones.into_iter().find(|icone| match icone.downcast_ref::<gio::FileIcon>() {
+    let icone = icones.into_iter().find(|icone| match icone.downcast_ref::<gio::FileIcon>() {
         Some(fichier) => fichier.file().path().is_some_and(|p| p.exists()),
         None => theme.has_gicon(icone),
-    })
+    })?;
+    // Le fichier de l'image (à la plus grande taille affichée), gardé pour les fois suivantes :
+    // afficher un fichier évite de charger tout le thème d'icônes (des milliers d'icônes,
+    // environ 100 ms à chaque ouverture d'un panneau)
+    let echelle = densite_ecran().ceil() as i32;
+    let fichier = theme
+        .lookup_by_gicon(&icone, 64, echelle, gtk::TextDirection::None, gtk::IconLookupFlags::empty())
+        .file()
+        .and_then(|f| f.path());
+    Some(fichier.map_or(icone, |chemin| gio::FileIcon::new(&gio::File::for_path(chemin)).upcast()))
 }
 
 // -----------------------------------------------------------------------------
