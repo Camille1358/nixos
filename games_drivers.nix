@@ -189,5 +189,6 @@ in
     protonup-qt # installer d'autres versions de Proton / Wine pour Lutris et Heroic
     mangohud # affichage en jeu : images par seconde, températures. Steam : mangohud %command%
     goverlay # interface de réglage de MangoHud
+    deadlock-mod-manager # mods pour Deadlock (Valve) : trouve le jeu dans Steam tout seul
   ];
 }

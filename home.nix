@@ -54,7 +54,7 @@ in
       fastfetch
       kdePackages.plasma-systemmonitor # plus fourni par KDE Plasma, donc ajouté ici
       kdePackages.ksystemstats # backend de données de plasma-systemmonitor
-      kdePackages.dolphin
+      # (Dolphin : dans desktop-home.nix, avec les aperçus des vidéos)
       kdePackages.spectacle
       tesseract
       nvtopPackages.amd
@@ -75,7 +75,7 @@ in
       google-chrome
       #-----------------------------------------------Games-----------------------------------------------
       easyeffects
-      # (lutris, heroic, mangohud, goverlay, protonup-qt, lact, gamescope : voir games_drivers.nix)
+      # (lutris, heroic, mangohud, goverlay, protonup-qt, lact, gamescope, deadlock-mod-manager : voir games_drivers.nix)
       #---------------------------------------------------------------------------------------------------
       
       # Discord PTB + Vencord, et Discord + Vencord (options de lancement : voir en haut)
@@ -84,7 +84,7 @@ in
         commandLineArgs = discordOptions;
       })
       (discord.override {
-        withVencord = true;
+        withVencord = false;
         commandLineArgs = discordOptions;
       })
 

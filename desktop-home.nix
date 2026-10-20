@@ -99,9 +99,10 @@ let
   ordiEnVeilleApres = 30;
 
   # Alerte de surchauffe : notification (et température en rouge dans la barre) quand le point
-  # le plus chaud de la carte graphique atteint ce seuil, en °C. Elle s'éteint d'urgence à 115.
-  # null = jamais d'alerte.
-  alerteChaleur = 100;
+  # le plus chaud de la carte graphique atteint ce seuil, en °C. null = jamais d'alerte.
+  # Désactivée : en jeu, ce point dépasse normalement 100 °C sur cette carte (elle ralentit
+  # d'elle-même vers 110, et ne s'éteint qu'à 115) ; l'alerte sonnait donc pour rien.
+  alerteChaleur = null;
 
   # Palette néon / cyberpunk (fond noir obligatoire). Format : RRGGBB, sans "#".
   c = {
@@ -194,8 +195,31 @@ let
   };
   panneau = nom: "${panneaux}/bin/panneaux ${nom}";
 
+  # Dolphin (fichiers), avec les aperçus de toutes les images et des vidéos. Qt ne trouve un
+  # module que dans les chemins de l'application elle-même : on les lui ajoute.
+  #   ffmpegthumbs     aperçus des vidéos
+  #   qtimageformats   images WebP, TIFF, TGA... (souvent celles venues d'Internet ou d'un téléphone)
+  #   kimageformats    images HEIC, AVIF, JPEG XL, RAW des appareils photo, Photoshop, GIMP...
+  # Le lanceur, et les services "ouvrir le dossier" (depuis Firefox, Discord...), passent tous
+  # par ce Dolphin-là.
+  dolphin = pkgs.symlinkJoin {
+    name = "dolphin-apercus";
+    paths = [ pkgs.kdePackages.dolphin ];
+    nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
+    postBuild = ''
+      rm $out/bin/dolphin
+      makeWrapper ${pkgs.kdePackages.dolphin}/bin/dolphin $out/bin/dolphin \
+        --prefix QT_PLUGIN_PATH : ${lib.makeSearchPath "lib/qt-6/plugins" (with pkgs.kdePackages; [ ffmpegthumbs qtimageformats kimageformats ])}
+      for f in share/dbus-1/services/org.kde.dolphin.FileManager1.service share/systemd/user/plasma-dolphin.service; do
+        rm $out/$f
+        sed "s|${pkgs.kdePackages.dolphin}|$out|g" ${pkgs.kdePackages.dolphin}/$f > $out/$f
+      done
+    '';
+  };
+
   # Partage d'écran : notre sélecteur (panneaux/src/partage.rs) remplace la fenêtre blanche du
-  # portail de Hyprland. Le portail lance un programme sans argument, d'où ce petit lanceur.
+  # portail de Hyprland : un écran, une fenêtre précise ou une zone. Le portail lance un
+  # programme sans argument, d'où ce petit lanceur.
   selecteurPartage = pkgs.writeShellScript "selecteur-partage" ''exec ${panneaux}/bin/panneaux partage "$@"'';
 
   # Modules de la barre et petites commandes du bureau (panneaux/src/barre.rs) : le programme
@@ -714,7 +738,9 @@ in
       end
 
       -- Écrans : échelle 1.5 sur tous les écrans (4K)
-      hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "1.5" })
+      -- mode "highrr" = la fréquence la plus haute (240 Hz pour l'ASUS PG32UCDM, en 4K).
+      -- "preferred" laissait l'écran choisir, et il choisissait 60 Hz.
+      hl.monitor({ output = "", mode = "highrr", position = "auto", scale = "1.5" })
 
       hl.env("XCURSOR_THEME", "Adwaita")
       hl.env("XCURSOR_SIZE", "24")
@@ -913,7 +939,7 @@ in
       -- Raccourcis (la liste lisible est tout en haut de desktop-home.nix)
       -- -----------------------------------------------------------------------
       hl.bind(mod .. " + Return", lancer("${terminalBin}"))
-      hl.bind(mod .. " + E", lancer("${pkgs.kdePackages.dolphin}/bin/dolphin"))
+      hl.bind(mod .. " + E", lancer("${dolphin}/bin/dolphin"))
       hl.bind(mod .. " + Q", hl.dsp.window.close())
       hl.bind(mod .. " + F", hl.dsp.window.fullscreen())
       hl.bind(mod .. " + M", hl.dsp.window.fullscreen({ mode = "maximized" })) -- garde la barre
@@ -1176,9 +1202,10 @@ in
   };
 
   # --- Partage d'écran (Discord, navigateurs...) --------------------------------
-  # Le portail de Hyprland ouvre notre sélecteur, dans le style des panneaux, au lieu du sien.
-  # "Se souvenir de ce choix" est coché d'office : une application qui sait s'en servir ne
-  # redemande pas à chaque partage.
+  # Le portail de Hyprland ouvre notre sélecteur (voir "selecteurPartage") : c'est là qu'on
+  # choisit l'écran ou la fenêtre. Sous Wayland, Discord ne peut pas voir les fenêtres
+  # lui-même : sa propre fenêtre de stream ne règle ensuite que la qualité et le son.
+  # "Se souvenir de ce choix" : une application qui sait s'en servir ne redemande plus.
   xdg.configFile."hypr/xdph.conf" = {
     text = ''
       screencopy {
@@ -1451,6 +1478,14 @@ in
 
       [KDE]
       LookAndFeelPackage=org.kde.breezedark.desktop
+
+      # Aperçus des fichiers (Dolphin) aussi sur les disques /storage. Montés à la demande,
+      # ils apparaissent deux fois dans la liste des montages, et KDE prend le premier pour un
+      # disque réseau, sur lequel il coupe les aperçus (limite par défaut : 0 octet). Sans
+      # limite, comme sur les autres disques ; les dossiers montrent aussi leur contenu.
+      [PreviewSettings]
+      MaximumRemoteSize=18446744073709551615
+      EnableRemoteFolderThumbnail=true
     '';
   };
 
@@ -1474,6 +1509,7 @@ in
   };
 
   home.packages = with pkgs; [
+    dolphin # fichiers, avec les aperçus des vidéos (voir plus haut)
     grim # captures d'écran
     slurp # sélection de zone
     wl-clipboard # presse-papiers en ligne de commande

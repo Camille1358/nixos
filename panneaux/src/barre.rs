@@ -756,6 +756,13 @@ fn veille_auto() {
     lancer(&["systemctl", "suspend"]);
 }
 
+/// Nom de l'écran actif (celui de la souris et de la fenêtre active), ou "" s'il est inconnu.
+fn ecran_actif() -> String {
+    let ecrans = hyprland("monitors");
+    let actif = ecrans.as_array().and_then(|liste| liste.iter().find(|e| e["focused"] == true));
+    actif.and_then(|e| e["name"].as_str()).unwrap_or_default().to_owned()
+}
+
 /// Le programme "panneaux" (les panneaux, avec GTK), rangé à côté de celui-ci.
 fn programme_panneaux() -> Command {
     let voisin = std::env::current_exe().ok().and_then(|moi| Some(moi.parent()?.join("panneaux")));
@@ -770,12 +777,7 @@ fn programme_panneaux() -> Command {
 /// L'aperçu propose Copier, Enregistrer, Enregistrer sous…, Texte (OCR) ou Annuler.
 /// L'image attend en mémoire vive : copiée ou annulée, elle ne laisse aucune trace.
 fn capture(ecran_entier: bool) {
-    let ecran = hyprland("monitors")
-        .as_array()
-        .and_then(|m| {
-            m.iter().find(|m| m["focused"] == true).and_then(|m| m["name"].as_str().map(str::to_owned))
-        })
-        .unwrap_or_default();
+    let ecran = ecran_actif();
     let nanos = Local::now().timestamp_nanos_opt().unwrap_or(0);
     let fichier = dossier_session().join(format!("capture-{nanos}.png")).to_string_lossy().into_owned();
     // -l 1 : compression légère, l'image est prête plus vite (elle ne reste pas sur le disque)
