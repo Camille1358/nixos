@@ -69,14 +69,31 @@ let
   # 1.5 = même taille que les autres applis, 2.0 = plus grand. Relancer Steam après nrs.
   steamTaille = 2.0;
 
-  # Défilement automatique façon Windows, dans TOUTES les applications : un clic molette (sans
-  # rester appuyé), puis la page défile toute seule vers la souris, sans fin ; un clic ou Échap
-  # arrête. Vitesse : pages par seconde quand la souris est à 10 points du point de départ
-  # (à 20 points : deux fois plus vite). Une "page" = la hauteur de la fenêtre.
-  defilementVitesse = 1.0;
-  # Applications à laisser à leur propre défilement automatique (nom de la fenêtre, en
-  # minuscules : voir hyprctl clients). Vide : le même défilement partout.
-  defilementAutoSauf = [ ];
+  # Défilement automatique façon Firefox, pour les applications qui n'en ont pas : un clic
+  # molette (sans rester appuyé), puis la page défile toute seule vers la souris, sans fin ;
+  # un clic ou Échap arrête. Plus la souris s'éloigne du point de départ, plus ça va vite,
+  # régulièrement, jusqu'à la vitesse maximale. Une "page" = la hauteur de la fenêtre.
+  # (Firefox garde son propre défilement automatique : voir "general.autoScroll", home.nix.)
+  #
+  # Applications où il marche (un bout du nom de la fenêtre, en minuscules : voir la ligne
+  # "class:" de hyprctl clients). Ailleurs, le clic molette reste un simple clic du milieu.
+  defilementAutoApplis = [
+    "equibop" # Discord
+    "discord"
+    "vesktop"
+  ];
+  # Vitesse maximale, en pages par seconde :
+  defilementVitesseMax = 3.0;
+  # Distance (en points) entre la souris et le point de départ pour atteindre cette vitesse
+  # maximale ; plus loin, ça n'accélère plus. Plus grand = accélération plus progressive.
+  # (L'écran fait 1440 points de haut.)
+  defilementDistanceMax = 1000;
+  # Il ne démarre que sur un endroit vide : pas sur un lien ou un bouton (curseur en main), et
+  # pas dans le haut des fenêtres (onglets, barres d'outils : le clic molette y ferme un
+  # onglet). Hauteur de ce haut de fenêtre, en points (0 = partout) :
+  defilementZoneHaut = 90;
+  # Démarrer aussi sur du texte (curseur en I : paragraphes, champs de saisie, éditeur de code) :
+  defilementSurTexte = false;
 
   # Raccourcis Discord utilisables depuis N'IMPORTE QUELLE application, comme sous Windows : un
   # appui active, un autre désactive. La touche agit sur le Discord utilisé en dernier et reste
@@ -160,7 +177,7 @@ let
   panneauxTheme = pkgs.writeText "panneaux-theme.json" (builtins.toJSON {
     couleurs = c;
     police = font;
-    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee defilementAutoSauf defilementVitesse alerteChaleur;
+    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee defilementAutoApplis defilementVitesseMax defilementDistanceMax defilementZoneHaut defilementSurTexte alerteChaleur;
   });
   # Programme en Rust (dossier panneaux/), avec GTK 4. Ses tests automatiques tournent à
   # chaque construction : s'ils échouent, nrs s'arrête au lieu d'installer un panneau cassé.
@@ -772,14 +789,11 @@ in
           kb_options = "${osConfig.services.xserver.xkb.options},verrmaj:ponctuation", -- verrmaj : voir clavier/verrmaj
           numlock_by_default = true,
 
-          -- Défilement au clic molette dans TOUTES les applications : maintenir la molette
-          -- enfoncée (bouton du milieu) et bouger la souris fait défiler la page.
-          -- Un simple clic molette, sans bouger, reste un clic du milieu (ouvrir un lien dans
-          -- un nouvel onglet) ; il ne colle plus rien (misc.middle_click_paste, plus bas).
-          -- Et un simple clic molette lance le défilement automatique façon Windows (voir les
-          -- raccourcis souris plus bas : "defilement").
-          scroll_method = "on_button_down",
-          scroll_button = 274, -- 274 = bouton du milieu (la molette)
+          -- Clic molette : défilement automatique façon Firefox sur un endroit vide (raccourcis
+          -- souris plus bas : "defilement") ; ailleurs, il reste un clic du milieu (ouvrir un
+          -- lien dans un nouvel onglet, fermer un onglet). Il ne colle rien
+          -- (misc.middle_click_paste, plus bas). Plus de défilement "molette maintenue" : sa
+          -- vitesse suivait celle de la souris, et il retardait le clic du milieu.
           -- Distance parcourue par cran de molette : 1.0 = normal, 2.0 = deux fois plus.
           scroll_factor = ${toString defilement},
         },
@@ -966,9 +980,17 @@ in
         hl.bind(mod .. " + " .. direction, hl.dsp.focus({ direction = direction }))
       end
       -- Super+Maj : déplacer la colonne entière vers la gauche / la droite, ou la fenêtre
-      -- vers le haut / le bas dans sa colonne
-      hl.bind(mod .. " + SHIFT + left", hl.dsp.layout("swapcol l"))
-      hl.bind(mod .. " + SHIFT + right", hl.dsp.layout("swapcol r"))
+      -- vers le haut / le bas dans sa colonne. Sur le bureau "jeux" (disposition en mosaïque,
+      -- sans colonnes : "swapcol" y donne une erreur), on déplace simplement la fenêtre.
+      for _, d in ipairs({ { "left", "l" }, { "right", "r" } }) do
+        hl.bind(mod .. " + SHIFT + " .. d[1], function()
+          if hl.get_active_workspace().tiled_layout == "scrolling" then
+            hl.dispatch(hl.dsp.layout("swapcol " .. d[2]))
+          else
+            hl.dispatch(hl.dsp.window.move({ direction = d[1] }))
+          end
+        end)
+      end
       hl.bind(mod .. " + SHIFT + up", hl.dsp.window.move({ direction = "up" }))
       hl.bind(mod .. " + SHIFT + down", hl.dsp.window.move({ direction = "down" }))
       -- Super+Ctrl : élargir / rétrécir la colonne, ou agrandir / réduire la hauteur
@@ -1448,6 +1470,9 @@ in
     # "Réduire" range la fenêtre dans la barre du haut (voir desktop.nix et startup.nix).
     gtk3.extraConfig.gtk-decoration-layout = ":minimize,maximize,close";
     gtk4.extraConfig.gtk-decoration-layout = ":minimize,maximize,close";
+    # Le clic molette ne colle rien dans les applis GTK (voir aussi misc.middle_click_paste)
+    gtk3.extraConfig.gtk-enable-primary-paste = false;
+    gtk4.extraConfig.gtk-enable-primary-paste = false;
     # Remplace les gtk.css laissés par KDE (ils réimposaient les couleurs de Plasma)
     gtk3.extraCss = "/* géré par home-manager (desktop-home.nix) */";
     gtk4.extraCss = "/* géré par home-manager (desktop-home.nix) */";
@@ -1455,6 +1480,8 @@ in
 
   # Indique aux applis récentes (GTK4, Firefox, Electron) de préférer le mode sombre
   dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
+  # Clic molette sans collage, là où les applis GTK4 le lisent sous Wayland
+  dconf.settings."org/gnome/desktop/interface".gtk-enable-primary-paste = false;
 
   # Même réglage des boutons de fenêtre, à l'endroit où les applis GTK le lisent sous Wayland.
   # Réduire = bouton de la fenêtre ou Super+N ; la fenêtre apparaît alors en haut à droite

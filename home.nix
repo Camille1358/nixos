@@ -127,6 +127,15 @@ in
     fi
   '';
 
+  # VS Code : le clic molette ne colle rien. Seul ce réglage est ajouté à settings.json, le
+  # reste (tes réglages faits dans VS Code) n'est pas touché. Relancer VS Code après nrs.
+  home.activation.vscodeSansCollage = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    reglages="${config.xdg.configHome}/Code/User/settings.json"
+    if [ -f "$reglages" ] && nouveau=$(${pkgs.jq}/bin/jq '.["editor.selectionClipboard"] = false' "$reglages" 2>/dev/null); then
+      [ "$nouveau" = "$(cat "$reglages")" ] || run sh -c 'printf "%s\n" "$2" > "$1"' _ "$reglages" "$nouveau"
+    fi
+  '';
+
   programs.spicetify = let
     spicePkgs = spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
   in {
@@ -158,9 +167,13 @@ in
     profiles.${local.sysName} = {
       isDefault = true;
       settings = {
-        # Défilement automatique : celui du système (clic molette, desktop-home.nix), le même que
-        # partout ailleurs ; celui de Firefox ferait défiler la page deux fois.
-        "general.autoScroll" = false;
+        # Défilement automatique de Firefox (clic molette) : il sait déjà ne pas démarrer sur un
+        # onglet, un lien ou un champ de saisie. Celui du système (desktop-home.nix,
+        # "defilementAutoApplis") ne marche pas dans Firefox, donc pas de défilement en double.
+        "general.autoScroll" = true;
+        # Le clic molette ne colle rien (Firefox gardait sa propre sélection et la recollait)
+        "middlemouse.paste" = false;
+        "clipboard.autocopy" = false;
         "privacy.resistFingerprinting" = false; # Protection contre le fingerprinting (+++FingerprintingResist, mais lourd sur l'ergo)
         "privacy.fingerprintingProtection" = false; # Protection contre le fingerprinting (+FingerprintingResist, alt moderne +leger)
         "dom.security.https_only_mode" = true; # Mode HTTPS (+confidentialité & sécurité)

@@ -34,6 +34,11 @@ in
   boot = {
     loader = {
       systemd-boot.enable = true;
+      # Seulement les 10 dernières versions du système au menu de démarrage. Sans limite, elles
+      # y restaient toutes (290 !) et leurs noyaux ont rempli /boot (1 Go) : nrs échouait avec
+      # "No space left on device". Les plus anciennes sont effacées de /boot à chaque nrs,
+      # AVANT la copie du nouveau noyau.
+      systemd-boot.configurationLimit = 10;
       efi.canTouchEfiVariables = true;
     };
     kernel.sysctl = {

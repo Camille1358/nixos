@@ -1,12 +1,14 @@
-//! Défilement automatique façon Windows, dans toutes les applications :
+//! Défilement automatique façon Firefox, dans les applications choisies (réglage
+//! "defilementAutoApplis", desktop-home.nix) :
 //! un clic molette (sans rester appuyé), puis la page défile toute seule vers la souris,
 //! sans fin, d'autant plus vite que la souris s'éloigne du point de départ. Un nouveau clic
 //! (gauche, droit ou molette) ou Échap arrête. Une petite icône marque le point de départ.
 //!
 //!   panneaux defilement   démarre (ou arrête, s'il est déjà en route)
 //!
-//! Vitesse : réglage "defilementVitesse" (desktop-home.nix) = pages par seconde pour 10 points
-//! d'éloignement ; 20 points = deux fois plus vite. Une "page" = la hauteur de la fenêtre.
+//! Vitesse : proportionnelle à l'éloignement de la souris, jusqu'à "defilementVitesseMax" pages
+//! par seconde, atteint à "defilementDistanceMax" points (desktop-home.nix). Une "page" = la
+//! hauteur de la fenêtre.
 //!
 //! Lancé par Hyprland à chaque clic molette (desktop-home.nix). Les clics et Échap l'arrêtent
 //! en effaçant son fichier témoin (voir la configuration de Hyprland). Le défilement est
@@ -41,7 +43,7 @@ use crate::systeme::{dossier_session, hyprland};
 
 const ZONE_NEUTRE: f64 = 4.0; // points autour du point de départ où rien ne défile
 const IMAGES_PAR_SECONDE: f64 = 60.0;
-const ICONE: i32 = 36; // taille de l'icône du point de départ, en points
+const ICONE: i32 = 24; // taille de l'icône du point de départ, en points
 
 /// Fichier témoin : il existe tant que le défilement tourne ; l'effacer l'arrête.
 pub fn temoin() -> PathBuf {
@@ -54,13 +56,33 @@ fn position() -> Option<(f64, f64)> {
     Some((p["x"].as_f64()?, p["y"].as_f64()?))
 }
 
-/// Pixels à défiler par image pour un éloignement donné (en points) : `pages_10` pages par
-/// seconde pour 10 points d'éloignement, proportionnel au-delà ; rien dans la zone neutre.
-pub fn vitesse(ecart: f64, pages_10: f64, page: f64) -> f64 {
-    if ecart.abs() <= ZONE_NEUTRE {
+/// Pixels à défiler par image pour un éloignement donné (en points) : proportionnel à
+/// l'éloignement (compté depuis le bord de la zone neutre, pour démarrer en douceur), jusqu'à
+/// `max` pages par seconde, atteint à `distance_max` points ; plus loin, ça n'accélère plus.
+pub fn vitesse(ecart: f64, distance_max: f64, max: f64, page: f64) -> f64 {
+    let loin = ecart.abs() - ZONE_NEUTRE;
+    if loin <= 0.0 {
         return 0.0;
     }
-    ecart / 10.0 * pages_10 * page / IMAGES_PAR_SECONDE
+    let pages = (loin / distance_max).min(1.0) * max;
+    ecart.signum() * pages * page / IMAGES_PAR_SECONDE
+}
+
+/// Le défilement démarre-t-il ? Seulement sur un endroit « vide » :
+/// - pas dans les `zone_haut` premiers points de la fenêtre (onglets, barres d'outils : le clic
+///   molette y ferme un onglet) ;
+/// - curseur en flèche normale : pas la main (lien, bouton), ni le I du texte (sauf si
+///   `sur_texte`). Forme inconnue (application qui dessine son curseur elle-même, ou Hyprland
+///   sans le patch hyprland-forme-curseur.patch) : on démarre.
+pub fn peut_demarrer(forme: Option<&str>, dans_fenetre: f64, zone_haut: f64, sur_texte: bool) -> bool {
+    if (0.0..zone_haut).contains(&dans_fenetre) {
+        return false;
+    }
+    match forme {
+        None | Some("" | "default") => true,
+        Some("text" | "vertical-text") => sur_texte,
+        Some(_) => false,
+    }
 }
 
 /// État Wayland : seule la configuration de l'icône (layer surface) nous intéresse.
@@ -117,16 +139,30 @@ pub fn lancer() {
         let _ = fs::remove_file(&temoin);
         return;
     }
-    // Applications laissées à leur propre défilement automatique (réglage, vide d'office)
+    // Seulement dans les applications choisies (réglage "defilementAutoApplis")
     let fenetre = hyprland("activewindow");
     let classe = fenetre["class"].as_str().map(str::to_lowercase).unwrap_or_default();
-    if THEME.defilement_auto_sauf.iter().any(|sauf| classe.contains(&sauf.to_lowercase())) {
+    if !THEME.defilement_auto_applis.iter().any(|appli| classe.contains(&appli.to_lowercase())) {
         return;
     }
     // Une "page" = la hauteur de la fenêtre active
     let page = fenetre["size"][1].as_f64().filter(|h| *h > 100.0).unwrap_or(900.0);
-    let Some(depart) = position() else { return };
-    if let Err(erreur) = defiler(depart, page, &temoin) {
+    let souris = hyprland("cursorpos");
+    let (Some(x), Some(y)) = (souris["x"].as_f64(), souris["y"].as_f64()) else { return };
+    // La souris doit être DANS la fenêtre : un clic molette sur la barre du haut ne compte pas
+    let (Some(fx), Some(fy), Some(fl), Some(fh)) =
+        (fenetre["at"][0].as_f64(), fenetre["at"][1].as_f64(), fenetre["size"][0].as_f64(), fenetre["size"][1].as_f64())
+    else {
+        return;
+    };
+    if !(fx..fx + fl).contains(&x) || !(fy..fy + fh).contains(&y) {
+        return;
+    }
+    // Sur ce qui se clique (lien, bouton, texte, onglet), le clic molette reste à l'application
+    if !peut_demarrer(souris["shape"].as_str(), y - fy, THEME.defilement_zone_haut, THEME.defilement_sur_texte) {
+        return;
+    }
+    if let Err(erreur) = defiler((x, y), page, &temoin) {
         eprintln!("panneaux defilement : {erreur}");
     }
     let _ = fs::remove_file(&temoin);
@@ -154,22 +190,37 @@ fn defiler(depart: (f64, f64), page: f64, temoin: &Path) -> Result<(), Box<dyn s
 
     let debut = Instant::now();
     let image = Duration::from_secs_f64(1.0 / IMAGES_PAR_SECONDE);
-    let pages_10 = THEME.defilement_vitesse;
+    let (distance_max, max) = (THEME.defilement_distance_max, THEME.defilement_vitesse_max);
+    // Hyprland multiplie ce défilement par la vitesse de la molette (réglage "defilement") :
+    // on la retire, pour que seule la distance compte.
+    let facteur = hyprland("getoption input:scroll_factor")["float"].as_f64().filter(|f| *f > 0.0).unwrap_or(1.0);
     // Les fractions de pixel non envoyées sont gardées pour l'image suivante (défilement lent régulier)
     let (mut reste_x, mut reste_y) = (0.0, 0.0);
+    let mut precedente = Instant::now();
     while temoin.exists() {
         let Some((x, y)) = position() else { break };
-        reste_x += vitesse(x - depart.0, pages_10, page);
-        reste_y += vitesse(y - depart.1, pages_10, page);
+        // Temps réellement écoulé (en images à 60 par seconde) : la vitesse reste la même même
+        // si une image arrive en retard (Hyprland occupé pendant que la souris bouge vite)
+        let maintenant = Instant::now();
+        // (au plus 6 images rattrapées : pas de saut brusque après un long blocage)
+        let images = ((maintenant - precedente).as_secs_f64() * IMAGES_PAR_SECONDE).min(6.0);
+        precedente = maintenant;
+        reste_x += vitesse(x - depart.0, distance_max, max, page) * images / facteur;
+        reste_y += vitesse(y - depart.1, distance_max, max, page) * images / facteur;
         let (dx, dy) = (reste_x.trunc(), reste_y.trunc());
         if dx != 0.0 || dy != 0.0 {
             let temps = debut.elapsed().as_millis() as u32;
-            souris.axis_source(wl_pointer::AxisSource::Finger);
+            // "Source = continue" : la page bouge d'exactement ces pixels. Avec "doigt" (pavé
+            // tactile), les applications y voyaient un geste et ajoutaient de l'élan selon la
+            // vitesse de la souris. La source est donnée APRÈS chaque mouvement : Hyprland
+            // l'efface à chaque mouvement reçu.
             if dy != 0.0 {
                 souris.axis(temps, wl_pointer::Axis::VerticalScroll, dy);
+                souris.axis_source(wl_pointer::AxisSource::Continuous);
             }
             if dx != 0.0 {
                 souris.axis(temps, wl_pointer::Axis::HorizontalScroll, dx);
+                souris.axis_source(wl_pointer::AxisSource::Continuous);
             }
             souris.frame();
             reste_x -= dx;
@@ -179,12 +230,6 @@ fn defiler(depart: (f64, f64), page: f64, temoin: &Path) -> Result<(), Box<dyn s
         connexion.flush()?;
         sleep(image);
     }
-    // Fin du geste : les applications ne continuent pas sur leur élan
-    let temps = debut.elapsed().as_millis() as u32;
-    souris.axis_source(wl_pointer::AxisSource::Finger);
-    souris.axis_stop(temps, wl_pointer::Axis::VerticalScroll);
-    souris.axis_stop(temps, wl_pointer::Axis::HorizontalScroll);
-    souris.frame();
     souris.destroy();
     if let Some(icone) = icone {
         icone.surface_couche.destroy();
@@ -251,11 +296,10 @@ fn afficher_icone(
     let cote = (f64::from(ICONE) * echelle).round() as i32;
     let pixels = dessiner_icone(cote);
     let chemin = dossier_session().join(format!("defilement-icone-{}", std::process::id()));
-    {
-        let mut fichier = File::create(&chemin)?;
-        fichier.write_all(&pixels)?;
-    }
-    let fichier = File::open(&chemin)?;
+    // Ouvert en lecture ET écriture : Hyprland refuse une image partagée en lecture seule
+    // ("Couldn't mmap from fd"), et cette erreur coupait tout le défilement.
+    let mut fichier = File::options().read(true).write(true).create(true).truncate(true).open(&chemin)?;
+    fichier.write_all(&pixels)?;
     let reserve = shm.create_pool(fichier.as_fd(), pixels.len() as i32, qh, ());
     let _ = fs::remove_file(&chemin); // le compositeur garde son accès
     let tampon = reserve.create_buffer(0, cote, cote, cote * 4, wl_shm::Format::Argb8888, qh, ());
@@ -313,17 +357,32 @@ fn fleche(x: f64, y: f64) -> bool {
 
 #[cfg(test)]
 mod essais {
-    use super::{dessiner_icone, vitesse};
+    use super::{dessiner_icone, peut_demarrer, vitesse};
 
     #[test]
     fn vitesse_proportionnelle() {
         let page = 900.0; // pixels
-        assert_eq!(vitesse(0.0, 1.0, page), 0.0);
-        assert_eq!(vitesse(3.0, 1.0, page), 0.0); // zone neutre
-        // 10 points = 1 page par seconde, soit 900 / 60 = 15 pixels par image
-        assert!((vitesse(10.0, 1.0, page) - 15.0).abs() < 1e-9);
-        assert!((vitesse(20.0, 1.0, page) - 30.0).abs() < 1e-9); // 2 pages par seconde
-        assert!(vitesse(-20.0, 1.0, page) < 0.0); // souris au-dessus : la page monte
+        // Maximum : 3 pages par seconde (900 × 3 / 60 = 45 pixels par image), atteint à 300 points
+        assert_eq!(vitesse(0.0, 300.0, 3.0, page), 0.0);
+        assert_eq!(vitesse(3.0, 300.0, 3.0, page), 0.0); // zone neutre
+        // À mi-distance après la zone neutre : la moitié du maximum
+        assert!((vitesse(154.0, 300.0, 3.0, page) - 22.5).abs() < 1e-9);
+        assert!(vitesse(-154.0, 300.0, 3.0, page) < 0.0); // souris au-dessus : la page monte
+        // Plus loin que la distance maximale : plafonné
+        assert!((vitesse(304.0, 300.0, 3.0, page) - 45.0).abs() < 1e-9);
+        assert!((vitesse(-900.0, 300.0, 3.0, page) + 45.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn demarre_seulement_sur_du_vide() {
+        assert!(peut_demarrer(Some("default"), 400.0, 90.0, false));
+        assert!(peut_demarrer(None, 400.0, 90.0, false)); // forme inconnue
+        assert!(peut_demarrer(Some(""), 400.0, 90.0, false));
+        assert!(!peut_demarrer(Some("pointer"), 400.0, 90.0, false)); // lien, bouton
+        assert!(!peut_demarrer(Some("text"), 400.0, 90.0, false));
+        assert!(peut_demarrer(Some("text"), 400.0, 90.0, true));
+        assert!(!peut_demarrer(Some("default"), 30.0, 90.0, false)); // onglets en haut
+        assert!(peut_demarrer(Some("default"), 30.0, 0.0, false)); // zone du haut coupée
     }
 
     #[test]
