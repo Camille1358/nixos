@@ -167,9 +167,7 @@ in
     profiles.${local.sysName} = {
       isDefault = true;
       settings = {
-        # Défilement automatique de Firefox (clic molette) : il sait déjà ne pas démarrer sur un
-        # onglet, un lien ou un champ de saisie. Celui du système (desktop-home.nix,
-        # "defilementAutoApplis") ne marche pas dans Firefox, donc pas de défilement en double.
+        # Défilement automatique de Firefox (clic molette)
         "general.autoScroll" = true;
         # Le clic molette ne colle rien (Firefox gardait sa propre sélection et la recollait)
         "middlemouse.paste" = false;

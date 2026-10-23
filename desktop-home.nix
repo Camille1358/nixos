@@ -69,32 +69,6 @@ let
   # 1.5 = même taille que les autres applis, 2.0 = plus grand. Relancer Steam après nrs.
   steamTaille = 2.0;
 
-  # Défilement automatique façon Firefox, pour les applications qui n'en ont pas : un clic
-  # molette (sans rester appuyé), puis la page défile toute seule vers la souris, sans fin ;
-  # un clic ou Échap arrête. Plus la souris s'éloigne du point de départ, plus ça va vite,
-  # régulièrement, jusqu'à la vitesse maximale. Une "page" = la hauteur de la fenêtre.
-  # (Firefox garde son propre défilement automatique : voir "general.autoScroll", home.nix.)
-  #
-  # Applications où il marche (un bout du nom de la fenêtre, en minuscules : voir la ligne
-  # "class:" de hyprctl clients). Ailleurs, le clic molette reste un simple clic du milieu.
-  defilementAutoApplis = [
-    "equibop" # Discord
-    "discord"
-    "vesktop"
-  ];
-  # Vitesse maximale, en pages par seconde :
-  defilementVitesseMax = 3.0;
-  # Distance (en points) entre la souris et le point de départ pour atteindre cette vitesse
-  # maximale ; plus loin, ça n'accélère plus. Plus grand = accélération plus progressive.
-  # (L'écran fait 1440 points de haut.)
-  defilementDistanceMax = 1000;
-  # Il ne démarre que sur un endroit vide : pas sur un lien ou un bouton (curseur en main), et
-  # pas dans le haut des fenêtres (onglets, barres d'outils : le clic molette y ferme un
-  # onglet). Hauteur de ce haut de fenêtre, en points (0 = partout) :
-  defilementZoneHaut = 90;
-  # Démarrer aussi sur du texte (curseur en I : paragraphes, champs de saisie, éditeur de code) :
-  defilementSurTexte = false;
-
   # Raccourcis Discord utilisables depuis N'IMPORTE QUELLE application, comme sous Windows : un
   # appui active, un autre désactive. La touche agit sur le Discord utilisé en dernier et reste
   # aussi reçue par l'application active. Format : "F7", "CTRL + SHIFT + M"... ; null = aucun.
@@ -177,7 +151,7 @@ let
   panneauxTheme = pkgs.writeText "panneaux-theme.json" (builtins.toJSON {
     couleurs = c;
     police = font;
-    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee defilementAutoApplis defilementVitesseMax defilementDistanceMax defilementZoneHaut defilementSurTexte alerteChaleur;
+    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee alerteChaleur;
   });
   # Programme en Rust (dossier panneaux/), avec GTK 4. Ses tests automatiques tournent à
   # chaque construction : s'ils échouent, nrs s'arrête au lieu d'installer un panneau cassé.
@@ -250,7 +224,6 @@ let
   #   veille-auto                appelé par hypridle (pas de veille si désactivée ou si l'IA travaille)
   #   capture-ecran [ecran]      capture façon KDE : zone (ou écran entier), puis aperçu
   #   lanceur                    Rofi ; relancer le referme, un clic ailleurs aussi (attrape-clic)
-  #   defilement                 défilement automatique (clic molette)
   #   rafraichir 8|9|10          mettre à jour un module de la barre (état, réduites, cloche)
   barre = nom: "${panneaux}/bin/panneaux-barre ${nom}";
   capteurs = barre "capteurs";
@@ -789,11 +762,6 @@ in
           kb_options = "${osConfig.services.xserver.xkb.options},verrmaj:ponctuation", -- verrmaj : voir clavier/verrmaj
           numlock_by_default = true,
 
-          -- Clic molette : défilement automatique façon Firefox sur un endroit vide (raccourcis
-          -- souris plus bas : "defilement") ; ailleurs, il reste un clic du milieu (ouvrir un
-          -- lien dans un nouvel onglet, fermer un onglet). Il ne colle rien
-          -- (misc.middle_click_paste, plus bas). Plus de défilement "molette maintenue" : sa
-          -- vitesse suivait celle de la souris, et il retardait le clic du milieu.
           -- Distance parcourue par cran de molette : 1.0 = normal, 2.0 = deux fois plus.
           scroll_factor = ${toString defilement},
         },
@@ -848,7 +816,9 @@ in
           focus_on_activate = true, -- une appli qui demande l'attention passe au premier plan
           vrr = 2, -- fréquence d'image variable (FreeSync), seulement en plein écran
           -- Clic molette : plus de "coller" (sélection collée au clic du milieu, habitude Linux).
-          -- Le clic molette sert au défilement, comme sous Windows (voir "input" plus haut).
+          -- Ceci empêche de coller d'une application à une autre ; dans une même application,
+          -- c'est hyprland-clic-molette.patch (desktop.nix) qui s'en charge : un clic molette
+          -- sur du texte n'est pas transmis. Firefox : réglages "middlemouse.paste" (home.nix).
           middle_click_paste = false,
         },
       })
@@ -872,7 +842,7 @@ in
       -- (sinon on la verrait glisser ou s'estomper, et l'écran ne paraîtrait pas figé)
       hl.layer_rule({
         name = "capture-instantanee",
-        match = { namespace = "^(selection|defilement)$" }, -- capture, icône du défilement automatique
+        match = { namespace = "^selection$" },
         no_anim = true,
       })
 
@@ -1166,19 +1136,6 @@ in
         hl.bind("ALT + Escape", function() AltTab.finir(false) end)
         hl.bind("Escape", function() AltTab.finir(false) end)
       end)
-
-      -- Défilement automatique façon Windows (panneaux/src/defilement.rs) : un clic molette le
-      -- démarre (ou l'arrête) ; un clic gauche ou droit, ou Échap, l'arrête aussi. Pour
-      -- l'arrêter, Hyprland efface simplement son fichier témoin : aucun programme n'est lancé
-      -- à chaque clic. "non_consuming" : les applications reçoivent quand même leurs clics.
-      local temoinDefilement = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/defilement-auto"
-      local function arreterDefilement()
-        os.remove(temoinDefilement)
-      end
-      hl.bind("mouse:274", hl.dsp.exec_cmd("${barre "defilement"}"), { non_consuming = true })
-      hl.bind("mouse:272", arreterDefilement, { non_consuming = true })
-      hl.bind("mouse:273", arreterDefilement, { non_consuming = true })
-      hl.bind("Escape", arreterDefilement, { non_consuming = true })
 
       -- Super + clic gauche = déplacer ; Super + clic droit = redimensionner
       hl.bind(mod .. " + mouse:272", hl.dsp.window.drag(), { mouse = true })

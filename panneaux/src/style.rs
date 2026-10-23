@@ -17,16 +17,6 @@ pub struct Theme {
     /// Nombre de notifications au survol de la cloche, et cloche animée ou non
     pub notifs_survol: usize,
     pub cloche_animee: bool,
-    /// Applications où le défilement automatique marche (bouts de classes de fenêtre)
-    pub defilement_auto_applis: Vec<String>,
-    /// Défilement automatique : vitesse maximale, en pages par seconde
-    pub defilement_vitesse_max: f64,
-    /// Défilement automatique : éloignement de la souris (en points) pour atteindre ce maximum
-    pub defilement_distance_max: f64,
-    /// Défilement automatique : hauteur (en points) du haut des fenêtres où il ne démarre pas
-    pub defilement_zone_haut: f64,
-    /// Défilement automatique : démarre aussi sur du texte (curseur en I)
-    pub defilement_sur_texte: bool,
     /// Alerte si le point le plus chaud de la carte graphique atteint ce seuil (°C) ; None = jamais
     pub alerte_chaleur: Option<i64>,
 }
@@ -55,15 +45,7 @@ pub static THEME: LazyLock<Theme> = LazyLock::new(|| {
         ordi_en_veille_apres: json["ordiEnVeilleApres"].as_i64().unwrap_or(30),
         notifs_survol: json["notifsSurvol"].as_u64().unwrap_or(10) as usize,
         cloche_animee: json["clocheAnimee"].as_bool().unwrap_or(false),
-        defilement_vitesse_max: json["defilementVitesseMax"].as_f64().unwrap_or(3.0),
-        defilement_distance_max: json["defilementDistanceMax"].as_f64().filter(|d| *d > 0.0).unwrap_or(1000.0),
-        defilement_zone_haut: json["defilementZoneHaut"].as_f64().unwrap_or(90.0),
-        defilement_sur_texte: json["defilementSurTexte"].as_bool().unwrap_or(false),
         alerte_chaleur: json["alerteChaleur"].as_i64(),
-        defilement_auto_applis: json["defilementAutoApplis"]
-            .as_array()
-            .map(|l| l.iter().filter_map(|c| c.as_str().map(str::to_owned)).collect())
-            .unwrap_or_default(),
     }
 });
 

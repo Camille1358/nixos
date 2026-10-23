@@ -24,6 +24,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # Deadlock : envoie tes parties à deadlock-api.com (suivi de progression).
+    # Voir modules/deadlock-suivi.nix. Épinglé sur une version : pour monter, change le numéro.
+    deadlock-api-ingest.url = "github:deadlock-api/deadlock-api-ingest/v0.4.5";
+
     # =========================================================================
     # IA (voir le dossier IA/) — chaîne d'approvisionnement, flowchart 0.6
     # Chaque source est épinglée sur une version précise ; son empreinte est

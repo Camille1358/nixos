@@ -9,7 +9,6 @@
 //!   panneaux-barre veille-auto                 appelé par hypridle : met l'ordinateur en veille
 //!   panneaux-barre capture-ecran [ecran]       capture d'écran (zone, ou écran entier), puis l'aperçu
 //!   panneaux-barre lanceur                     lanceur d'applications (Rofi) + attrape-clic
-//!   panneaux-barre defilement                  défilement automatique (defilement.rs)
 //!   panneaux-barre rafraichir 8|9|10           mettre à jour un module de la barre
 
 use std::collections::{HashMap, HashSet};
@@ -58,7 +57,6 @@ pub fn commande(arguments: &[String]) -> Option<i32> {
         "veille-auto" => veille_auto(),
         "capture-ecran" => capture(argument(2) == "ecran"),
         "lanceur" => lanceur(),
-        "defilement" => crate::defilement::lancer(),
         // mettre à jour un module de la barre (8 état, 9 réduites, 10 notifications)
         "rafraichir" => {
             if let Ok(signal @ 1..=30) = argument(2).parse::<u8>() {

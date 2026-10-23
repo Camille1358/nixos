@@ -22,9 +22,6 @@ gtk4-layer-shell = "0.8"
 gio-unix = { version = "0.22", features = ["v2_58"] } # DesktopAppInfo : retrouver l'icône d'une application
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
-wayland-client = "0.31" # défilement automatique : souris virtuelle (barre.rs)
-wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-wayland-protocols = { version = "0.32", features = ["client"] } # taille exacte de l'icône du défilement
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 libc = "0.2" # envoyer un signal à la barre sans lancer pkill (systeme.rs)
 

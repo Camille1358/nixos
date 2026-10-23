@@ -4,12 +4,10 @@
 //! n'occupe que quelques Mo, au lieu d'une vingtaine de millisecondes et 25 Mo.
 //!
 //!   panneaux-barre capteurs cpu|gpu|ram|temp | notifs | etat | reduites-barre
-//!   panneaux-barre volume up|down|mute | veille-auto | capture-ecran [ecran] | lanceur | defilement
+//!   panneaux-barre volume up|down|mute | veille-auto | capture-ecran [ecran] | lanceur
 
 #[path = "barre.rs"]
 mod barre;
-#[path = "defilement.rs"]
-mod defilement;
 #[allow(dead_code)] // la feuille de style ne sert qu'aux panneaux
 #[path = "style.rs"]
 mod style;
@@ -22,7 +20,7 @@ fn main() {
     let code = barre::commande(&arguments).unwrap_or_else(|| {
         eprintln!(
             "usage : panneaux-barre capteurs cpu|gpu|ram|temp | notifs | etat | reduites-barre | volume up|down|mute \
-             | veille-auto | capture-ecran [ecran] | lanceur | defilement"
+             | veille-auto | capture-ecran [ecran] | lanceur"
         );
         2
     });

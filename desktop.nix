@@ -17,9 +17,9 @@ in
     patches = (ancien.patches or [ ]) ++ [
       ./hyprland-reduire.patch # bouton "réduire"
       ./hyprland-commandes.patch # clic sur les bureaux virtuels de la barre
-      # "hyprctl cursorpos" donne aussi la forme du curseur (main sur un lien, I sur du texte) :
-      # le défilement automatique ne démarre pas sur ce qui se clique (panneaux/src/defilement.rs)
-      ./hyprland-forme-curseur.patch
+      # Clic molette sur du texte (curseur en I) = rien : aucune application ne colle, même
+      # celles qui n'ont pas de réglage pour ça (VS Code, Discord, Steam). Voir le fichier.
+      ./hyprland-clic-molette.patch
     ];
   });
 
