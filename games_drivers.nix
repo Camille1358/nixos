@@ -158,10 +158,10 @@ in
 
     gamescope.enable = true;
 
-    # GameMode : optimise la machine pendant un jeu, puis remet tout comme avant.
-    # Il ne s'active QUE si le jeu est lancé avec lui. Dans Steam : clic droit sur le jeu
-    # > Propriétés > Options de lancement :   gamemoderun %command%
-    # (Lutris et Heroic ont une case "GameMode" dans leurs réglages.)
+    # GameMode : optimise la machine pendant un jeu, puis remet tout comme avant
+    # (processeur en mode performance, cœurs au cache 3D, priorité au jeu).
+    # Jeux Steam : automatique, rien à mettre dans les options de lancement (voir
+    # "gamemode-steam" plus bas). Lutris et Heroic ont une case "GameMode" dans leurs réglages.
     gamemode = {
       enable = true;
       settings = {
@@ -179,6 +179,40 @@ in
 
   # Autorise ce même groupe à changer le mode X3D du processeur (sinon réservé à root). [?]
   systemd.tmpfiles.rules = [ "z ${x3d} 0664 root gamemode - -" ];
+
+  # GameMode automatique pour TOUS les jeux Steam. Sans "gamemoderun %command%" dans les
+  # options de lancement d'un jeu, GameMode ne s'activait jamais (cas de Deadlock) : le
+  # processeur restait en mode "frequency", le jeu pouvait tourner sur les 8 cœurs SANS le
+  # cache 3D, d'où des chutes d'images par seconde dans les moments chargés.
+  # Ce petit service repère chaque jeu lancé par Steam (programme "reaper SteamLaunch
+  # AppId=…") et le déclare à GameMode ; à la fermeture du jeu, tout revient comme avant.
+  systemd.user.services.gamemode-steam = {
+    description = "GameMode automatique pour les jeux Steam";
+    wantedBy = [ "graphical-session.target" ];
+    partOf = [ "graphical-session.target" ];
+    path = [ pkgs.procps pkgs.glib ];
+    script = ''
+      declare -A declares
+      while true; do
+        # Le programme s'appelle exactement "reaper" ET a été lancé par Steam pour un jeu
+        # (un simple texte "SteamLaunch" dans une autre commande ne compte pas)
+        for pid in $(pgrep -x reaper); do
+          [ -n "''${declares[$pid]:-}" ] && continue
+          tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q 'SteamLaunch AppId=[0-9]' || continue
+          declares[$pid]=1
+          gdbus call --session --dest com.feralinteractive.GameMode \
+            --object-path /com/feralinteractive/GameMode \
+            --method com.feralinteractive.GameMode.RegisterGame "$pid" >/dev/null 2>&1 || true
+        done
+        # Oublier les jeux fermés (GameMode s'en rend compte de lui-même)
+        for pid in "''${!declares[@]}"; do
+          [ -d "/proc/$pid" ] || unset "declares[$pid]"
+        done
+        sleep 3
+      done
+    '';
+    serviceConfig.Restart = "always";
+  };
 
   # ---------------------------------------------------------------------------
   # Outils

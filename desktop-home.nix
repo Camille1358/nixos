@@ -1001,7 +1001,7 @@ in
       local function altTabEcrire(texte)
         local f = io.open(fichierAltTab, "w")
         if f then
-          f:write(texte)
+          f:write(tostring(texte))
           f:close()
         end
       end
@@ -1012,7 +1012,7 @@ in
         local liste = {}
         for _, w in ipairs(hl.get_windows()) do
           local espace = (w.workspace and w.workspace.name) or ""
-          if w.mapped and (espace == "special:reduites" or not espace:match("^special:")) then
+          if w.mapped and w.address and (espace == "special:reduites" or not espace:match("^special:")) then
             table.insert(liste, w)
           end
         end
@@ -1026,7 +1026,7 @@ in
         altTabEcrire("fin")
         hl.dispatch(hl.dsp.submap("reset"))
         local w = AltTab.liste[AltTab.index]
-        if not (choisir and w) then return end
+        if not (choisir and w and w.address) then return end -- (fenêtre fermée entre-temps)
         local cible = "address:" .. w.address
         if w.workspace and w.workspace.name == "special:reduites" then
           -- fenêtre réduite : la ramener sur l'espace de travail affiché
@@ -1103,7 +1103,16 @@ in
           end, { timeout = 30000, type = "oneshot" })
         end
         AltTab.index = (AltTab.index - 1 + sens) % #AltTab.liste + 1
-        altTabEcrire(AltTab.liste[AltTab.index].address)
+        local w = AltTab.liste[AltTab.index]
+        if not (w and w.address) then
+          -- Une fenêtre s'est fermée pendant l'Alt+Tab (un jeu, une fenêtre de Steam...) :
+          -- son entrée est devenue vide. On refait la liste avec les fenêtres restantes.
+          AltTab.liste = altTabListe()
+          if #AltTab.liste == 0 then return AltTab.finir(false) end
+          AltTab.index = math.min(AltTab.index, #AltTab.liste)
+          w = AltTab.liste[AltTab.index]
+        end
+        altTabEcrire(w.address)
       end
 
       -- Clic sur une miniature (appelé par le programme panneaux)
