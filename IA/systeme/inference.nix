@@ -73,6 +73,10 @@ lib.mkIf ia.actif.inference {
       # Le service n'a pas de dossier personnel : on lui en donne un pour le cache des shaders Vulkan.
       HOME = "${ia.dossier}/cache/llama-swap";
       XDG_CACHE_HOME = "${ia.dossier}/cache/llama-swap";
+    } // lib.optionalAttrs (ia.moteurGPU == "vulkan") {
+      # Seule la RX 6800 XT est visible du moteur (voir carteVulkanId, parametres.nix)
+      MESA_VK_DEVICE_SELECT = ia.carteVulkanId;
+      MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE = "1";
     } // lib.optionalAttrs (ia.moteurGPU == "rocm") {
       HSA_OVERRIDE_GFX_VERSION = "10.3.0"; # la RX 6800 XT (gfx1030) vue par ROCm
     };

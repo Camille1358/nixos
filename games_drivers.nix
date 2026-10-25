@@ -27,6 +27,23 @@ let
   # Identifiant de la carte graphique pour LACT (constructeur:modèle-…-emplacement PCI)
   carteGraphique = "1002:73BF-1043:04F2-0000:03:00.0";
 
+  # Réglages LACT de la carte (ventilation, puissance), communs à tous les profils
+  reglagesCarte = {
+    fan_control_enabled = true;
+    fan_control_settings = {
+      mode = "curve";
+      static_speed = 0.5;
+      temperature_key = "junction";
+      interval_ms = 500;
+      curve = courbeCarteGraphique;
+      spindown_delay_ms = 5000; # ne ralentit qu'après 5 s plus froides (pas de yoyo)
+      change_threshold = 2;
+    };
+  } // lib.optionalAttrs (puissanceCarteGraphique != null) { power_cap = puissanceCarteGraphique * 1.0; };
+
+  # Fréquence maximale de la carte pendant que l'IA tourne (réglage dans IA/parametres.nix)
+  frequenceMaxIA = (import ./IA/parametres.nix).frequenceMaxCarteIA;
+
   ventilationBoitier = pkgs.writeShellScript "ventilation-boitier" ''
     # Plus haute température (en degrés) parmi la carte graphique et le processeur
     temperature() {
@@ -117,18 +134,25 @@ in
     version = 5;
     daemon = { log_level = "info"; admin_group = "wheel"; disable_clocks_cleanup = false; };
     apply_settings_timer = 5;
-    gpus.${carteGraphique} = {
-      fan_control_enabled = true;
-      fan_control_settings = {
-        mode = "curve";
-        static_speed = 0.5;
-        temperature_key = "junction";
-        interval_ms = 500;
-        curve = courbeCarteGraphique;
-        spindown_delay_ms = 5000; # ne ralentit qu'après 5 s plus froides (pas de yoyo)
-        change_threshold = 2;
+    gpus.${carteGraphique} = reglagesCarte;
+
+    # Profils choisis automatiquement (le premier dont la règle correspond l'emporte ; les noms
+    # commencent par un chiffre pour garder cet ordre) :
+    #   1-jeux : GameMode actif (tout jeu Steam) -> réglages normaux, même si un modèle d'IA
+    #            est encore chargé ;
+    #   2-ia   : un modèle d'IA est chargé (llama-server) -> fréquence limitée, la carte
+    #            chauffait jusqu'à l'arrêt d'urgence (réglage frequenceMaxCarteIA, IA/parametres.nix).
+    auto_switch_profiles = frequenceMaxIA != null;
+    profiles = lib.optionalAttrs (frequenceMaxIA != null) {
+      "1-jeux" = {
+        gpus.${carteGraphique} = reglagesCarte;
+        rule = { type = "gamemode"; };
       };
-    } // lib.optionalAttrs (puissanceCarteGraphique != null) { power_cap = puissanceCarteGraphique * 1.0; };
+      "2-ia" = {
+        gpus.${carteGraphique} = reglagesCarte // { max_core_clock = frequenceMaxIA; };
+        rule = { type = "process"; filter = { name = "llama-server"; }; };
+      };
+    };
   };
   # La courbe a pour clés des températures : Nix les écrit entre guillemets ('40':), LACT
   # attend des nombres (40:). On retire les guillemets dans le fichier produit.

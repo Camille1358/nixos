@@ -119,8 +119,12 @@ rec {
   # La flowchart demande de tester les deux : change ce mot, nrsf, compare les jetons/s.
   moteurGPU = "vulkan";
 
-  # Nom de la RX 6800 XT pour Vulkan (l'autre, Vulkan1, est la puce intégrée au processeur).
-  # Vérifier : llama-server --list-devices
+  # Carte graphique utilisée par le moteur, désignée par son identifiant matériel (constructeur:
+  # modèle), qui ne change jamais : 1002:73bf = la RX 6800 XT. Le moteur ne voit QU'ELLE, sous
+  # le nom Vulkan0. (Avant, "Vulkan0" désignait la première carte trouvée : après un redémarrage
+  # le 25/10/2026, c'était devenu la puce graphique du processeur, très lente.)
+  # Vérifier : MESA_VK_DEVICE_SELECT=1002:73bf MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1 llama-server --list-devices
+  carteVulkanId = "1002:73bf";
   carteVulkan = "Vulkan0";
 
   # ---------------------------------------------------------------------------
@@ -182,6 +186,15 @@ rec {
 
   # Un gros modèle inutilisé est déchargé après ce délai (libère la VRAM pour les jeux)
   dechargementApres = 900; # secondes
+
+  # CHALEUR DE LA CARTE GRAPHIQUE pendant que l'IA travaille. Le 25/10/2026, un long travail
+  # d'agents a fait monter la carte à 116 °C (point le plus chaud) : elle a éteint l'ordinateur
+  # d'urgence. Baisser sa puissance ne suffit pas (elle refuse moins de 231 W) : on limite sa
+  # fréquence tant qu'un modèle est chargé (programme llama-server), via LACT
+  # (games_drivers.nix). Un modèle de langage dépend surtout de la mémoire de la carte, pas de
+  # cette fréquence : il ralentit peu. En jeu (GameMode actif), la carte garde toute sa fréquence.
+  # Fréquence d'origine : 2424 MHz. null = pas de limite.
+  frequenceMaxCarteIA = 1800; # MHz
 
   # ---------------------------------------------------------------------------
   # MÉMOIRE PARTAGÉE (2.1, 2.3) : Engram (décisions, découvertes) et Qdrant (recherche par

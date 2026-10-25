@@ -26,10 +26,20 @@
         formats = [ "html" "json" ];
       };
       outgoing.request_timeout = 6.0;
-      # Moteurs ajoutés à ceux par défaut. En essai réel, Brave, DuckDuckGo et Startpage
-      # refusaient les requêtes venant de ta connexion (limite de débit, CAPTCHA) ; Bing
-      # répondait. Plus il y a de moteurs, moins une panne de l'un se voit.
-      engines = map (nom: { name = nom; disabled = false; }) [ "google" "bing" "mojeek" "yahoo" "presearch" "wikipedia" "wikidata" ];
+      # Moteurs testés un par un le 25/10/2026, depuis ta connexion :
+      #   répondent : Bing, GitHub, Stack Overflow (ces deux-là : précieux pour les recherches
+      #               techniques, API, code) ; Wikipédia et Wikidata (culture générale) ;
+      #   bloqués   : DuckDuckGo (CAPTCHA), Brave (trop de requêtes), Startpage (plantage),
+      #               Qwant et Presearch (accès refusé), Yahoo (erreur), Reddit (accès refusé) ;
+      #   muets     : Google et Mojeek (aucun résultat, sans erreur).
+      # Avant, seul Bing répondait : une recherche technique ne renvoyait que des pages
+      # génériques, et chaque moteur bloqué faisait attendre jusqu'à 6 s. Les bloqués et les
+      # muets sont donc coupés. À retester de temps en temps : un blocage peut se lever.
+      engines =
+        map (nom: { name = nom; disabled = false; }) [ "bing" "github" "stackoverflow" "wikipedia" "wikidata" ]
+        ++ map (nom: { name = nom; disabled = true; }) [
+          "google" "mojeek" "duckduckgo" "brave" "startpage" "qwant" "yahoo" "presearch" "reddit"
+        ];
     };
   };
   systemd.services.searx = lib.mkIf ia.actif.searxng {
