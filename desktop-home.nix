@@ -65,6 +65,9 @@ let
   # 2.0 = deux fois plus de lignes par cran. (Firefox ajoute sa propre vitesse par-dessus.)
   defilement = 2.0;
 
+  # Volume : pas en % à chaque cran de la molette du clavier (touches multimédia volume +/−).
+  pasVolume = 1;
+
   # Taille de l'interface de Steam (affiché aux vrais pixels de l'écran 4K, donc net) :
   # 1.5 = même taille que les autres applis, 2.0 = plus grand. Relancer Steam après nrs.
   steamTaille = 2.0;
@@ -151,7 +154,7 @@ let
   panneauxTheme = pkgs.writeText "panneaux-theme.json" (builtins.toJSON {
     couleurs = c;
     police = font;
-    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee alerteChaleur;
+    inherit hauteurBarre ordiEnVeilleApres notifsSurvol clocheAnimee alerteChaleur pasVolume;
   });
   # Programme en Rust (dossier panneaux/), avec GTK 4. Ses tests automatiques tournent à
   # chaque construction : s'ils échouent, nrs s'arrête au lieu d'installer un panneau cassé.
@@ -177,7 +180,7 @@ let
           pkgs.grim pkgs.coreutils # miniatures (Alt+Tab, partage) ; timeout : arrêter une capture bloquée
           pkgs.networkmanager pkgs.util-linux pkgs.bluez pkgs.networkmanagerapplet # réseau
           pkgs.mako # makoctl (notifications)
-          pkgs.wireplumber pkgs.slurp config.programs.rofi.finalPackage # volume, capture, lanceur
+          pkgs.wireplumber pkgs.pipewire pkgs.slurp config.programs.rofi.finalPackage # volume (pw-link), capture, lanceur
           pkgs.tesseract # capture : texte de l'image (OCR)
           config.programs.hyprlock.package osConfig.programs.hyprland.package
         ]}
@@ -732,6 +735,13 @@ in
       -- "preferred" laissait l'écran choisir, et il choisissait 60 Hz.
       hl.monitor({ output = "", mode = "highrr", position = "auto", scale = "1.5" })
 
+      -- Carte graphique qui dessine le bureau : Hyprland prend celle que l'ordinateur désigne
+      -- « principale » au démarrage. Depuis le 25/10/2026, c'est la puce graphique du processeur
+      -- (réglage du BIOS remis à zéro ?) : chaque image est calculée par elle puis recopiée vers
+      -- la RX 6800 XT, d'où ~1 s de décalage au survol. Corriger dans le BIOS (carte principale
+      -- = PCIe, ou puce intégrée désactivée). Essai ABANDONNÉ : forcer la carte ici avec
+      -- hl.env("AQ_DRM_DEVICES", "/dev/dri/carte-rx6800") empêchait Hyprland de démarrer.
+
       hl.env("XCURSOR_THEME", "Adwaita")
       hl.env("XCURSOR_SIZE", "24")
 
@@ -846,10 +856,12 @@ in
         no_anim = true,
       })
 
-      -- Petites fenêtres utilitaires : flottantes plutôt qu'en mosaïque
+      -- Petites fenêtres utilitaires : flottantes plutôt qu'en mosaïque. (KeePassXC n'y est plus :
+      -- une fenêtre flottante reste toujours AU-DESSUS des autres, Alt+Tab ne pouvait plus passer
+      -- devant, et sans boutons de fenêtre on ne pouvait pas la mettre de côté.)
       hl.window_rule({
         name = "flottantes",
-        match = { class = "^(org.pulseaudio.pavucontrol|org.keepassxc.KeePassXC|qalculate-qt)$" },
+        match = { class = "^(org.pulseaudio.pavucontrol|qalculate-qt)$" },
         float = true,
       })
       -- Mélangeur complet : taille correcte, au centre (Super+clic gauche pour le déplacer)

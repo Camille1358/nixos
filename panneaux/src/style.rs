@@ -17,6 +17,8 @@ pub struct Theme {
     /// Nombre de notifications au survol de la cloche, et cloche animée ou non
     pub notifs_survol: usize,
     pub cloche_animee: bool,
+    /// Pas du volume (en %) pour les touches multimédia
+    pub pas_volume: u64,
     /// Alerte si le point le plus chaud de la carte graphique atteint ce seuil (°C) ; None = jamais
     pub alerte_chaleur: Option<i64>,
 }
@@ -45,6 +47,7 @@ pub static THEME: LazyLock<Theme> = LazyLock::new(|| {
         ordi_en_veille_apres: json["ordiEnVeilleApres"].as_i64().unwrap_or(30),
         notifs_survol: json["notifsSurvol"].as_u64().unwrap_or(10) as usize,
         cloche_animee: json["clocheAnimee"].as_bool().unwrap_or(false),
+        pas_volume: json["pasVolume"].as_u64().unwrap_or(5).max(1),
         alerte_chaleur: json["alerteChaleur"].as_i64(),
     }
 });

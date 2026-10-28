@@ -714,20 +714,18 @@ fn reduites_barre() {
 // =============================================================================
 /// Volume (touches multimédia) + petite notification avec jauge.
 fn volume(action: &str) {
+    let sortie = sortie_volume();
+    let pas = THEME.pas_volume as i64; // réglé en haut de desktop-home.nix (pasVolume)
+    let actuel = pourcentage_pactl(&executer(&["pactl", "get-sink-volume", &sortie]).1).unwrap_or(0);
     match action {
-        "up" => drop(executer(&["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"])),
-        "down" => drop(executer(&["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"])),
-        "mute" => drop(executer(&["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])),
+        "up" => drop(executer(&["pactl", "set-sink-volume", &sortie, &format!("{}%", (actuel + pas).min(100))])),
+        "down" => drop(executer(&["pactl", "set-sink-volume", &sortie, &format!("{}%", (actuel - pas).max(0))])),
+        "mute" => drop(executer(&["pactl", "set-sink-mute", &sortie, "toggle"])),
         _ => {}
     }
-    // Réponse de la forme "Volume: 0.45" ou "Volume: 0.45 [MUTED]"
-    let etat = executer(&["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"]).1;
-    let pct = etat
-        .split_whitespace()
-        .nth(1)
-        .and_then(|v| v.parse::<f64>().ok())
-        .map_or(0, |v| (v * 100.0).round() as i64);
-    let titre = if etat.contains("MUTED") { "Son coupé".to_owned() } else { format!("Volume {pct} %") };
+    let pct = pourcentage_pactl(&executer(&["pactl", "get-sink-volume", &sortie]).1).unwrap_or(0);
+    let coupe = executer(&["pactl", "get-sink-mute", &sortie]).1.contains("yes");
+    let titre = if coupe { "Son coupé".to_owned() } else { format!("Volume {pct} %") };
     let jauge = format!("int:value:{pct}");
     lancer(&[
         "notify-send",
@@ -741,6 +739,41 @@ fn volume(action: &str) {
         &jauge,
         &titre,
     ]);
+}
+
+/// Sortie dont on règle le volume : la sortie par défaut, SAUF si c'est celle d'EasyEffects.
+/// Celle-là est virtuelle : changer son volume ne changeait rien au son entendu. On règle alors
+/// la vraie sortie vers laquelle EasyEffects envoie le son (la Scarlett, par exemple).
+fn sortie_volume() -> String {
+    let defaut = executer(&["pactl", "get-default-sink"]).1.trim().to_owned();
+    if defaut == "easyeffects_sink"
+        && let Some(vraie) = sortie_easyeffects(&executer(&["pw-link", "-l"]).1)
+    {
+        return vraie;
+    }
+    if defaut.is_empty() { "@DEFAULT_SINK@".to_owned() } else { defaut }
+}
+
+/// Dans la liste des liens de PipeWire (pw-link -l), la sortie reliée à la fin de la chaîne
+/// d'EasyEffects : la ligne "|-> <sortie>:playback_FL" sous "ee_soe_output_level:output_FL".
+fn sortie_easyeffects(liens: &str) -> Option<String> {
+    let mut lignes = liens.lines();
+    while let Some(ligne) = lignes.next() {
+        if ligne.trim_end() == "ee_soe_output_level:output_FL" {
+            return lignes
+                .next()?
+                .trim()
+                .strip_prefix("|-> ")?
+                .strip_suffix(":playback_FL")
+                .map(str::to_owned);
+        }
+    }
+    None
+}
+
+/// Premier pourcentage d'une réponse de "pactl get-sink-volume" ("... /  43% / ...").
+fn pourcentage_pactl(reponse: &str) -> Option<i64> {
+    reponse.split_whitespace().find_map(|mot| mot.strip_suffix('%')?.parse().ok())
 }
 
 /// Appelé par hypridle après "ordiEnVeilleApres" minutes d'inactivité. Pas de veille tant que
@@ -815,6 +848,16 @@ fn lanceur() {
 #[cfg(test)]
 mod essais {
     use super::*;
+
+    #[test]
+    fn volume_lectures() {
+        let reponse = "Volume: front-left: 28180 /  43% / -21,99 dB,   front-right: 28180 /  43% / -21,99 dB";
+        assert_eq!(pourcentage_pactl(reponse), Some(43));
+        assert_eq!(pourcentage_pactl("rien"), None);
+        let liens = "ee_soe_output_level:output_FL\n  |-> alsa_output.usb-Scarlett.sink:playback_FL\nautre:x\n";
+        assert_eq!(sortie_easyeffects(liens).as_deref(), Some("alsa_output.usb-Scarlett.sink"));
+        assert_eq!(sortie_easyeffects("autre:x\n"), None);
+    }
 
     #[test]
     fn noms() {

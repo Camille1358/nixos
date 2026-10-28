@@ -23,6 +23,13 @@ in
     ];
   });
 
+  # Nom fixe pour la RX 6800 XT (emplacement PCI 0000:03:00.0), utilisé par Hyprland
+  # (AQ_DRM_DEVICES, desktop-home.nix) : card0/card1 changent selon le démarrage, et le chemin
+  # by-path contient des « : » que Hyprland prendrait pour un séparateur.
+  services.udev.extraRules = ''
+    SUBSYSTEM=="drm", KERNEL=="card[0-9]*", KERNELS=="0000:03:00.0", SYMLINK+="dri/carte-rx6800"
+  '';
+
   # --- Connexion (sans X11) -------------------------------------------------
   # greetd + tuigreet : écran de connexion texte, 100 % Wayland/TTY, aucun serveur X.
   # initial_session = connexion automatique au démarrage, SANS identifiant ni mot de passe
